@@ -7,7 +7,7 @@ local VirtualUser = game:GetService("VirtualUser")
 
 local LocalPlayer = Players.LocalPlayer
 
--- Load Client
+-- Load Client (same as your main script)
 local Client = {}
 for _,v in ReplicatedStorage.Library.Client:GetChildren() do
     local ok, mod = pcall(require, v)
@@ -16,16 +16,16 @@ for _,v in ReplicatedStorage.Library.Client:GetChildren() do
     end
 end
 
--- Same Invoke wrapper as your script
+-- Wrapper
 local function Invoke(name, args)
     return Client.Network.Invoke(name, unpack(args))
 end
 
 -- SETTINGS
-local EVENT_NAME = "Christmas2025"
+local DIRECTORY = "Eggs:Events"
+local EVENT = "Christmas2025"
 local EGG_INDEX = 5 -- 🎁 Present Egg
-local HATCH_AMOUNT = 35
-local AUTO_HATCH = true
+local AMOUNT = 35
 
 -- Skip animation
 local function skip()
@@ -34,11 +34,12 @@ local function skip()
 end
 
 task.spawn(function()
-    while AUTO_HATCH do
+    while true do
         Invoke("Eggs_RequestPurchase", {
-            EVENT_NAME,
+            DIRECTORY,
+            EVENT,
             EGG_INDEX,
-            HATCH_AMOUNT
+            AMOUNT
         })
 
         repeat
@@ -50,4 +51,4 @@ task.spawn(function()
     end
 end)
 
-print("🎁 Present Egg hatching (Christmas2025)")
+print("🎁 Present Egg hatching (Christmas2025) — FIXED")
