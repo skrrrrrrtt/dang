@@ -1,0 +1,53 @@
+repeat task.wait() until game:IsLoaded()
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local VirtualUser = game:GetService("VirtualUser")
+
+local LocalPlayer = Players.LocalPlayer
+
+-- Load Client
+local Client = {}
+for _,v in ReplicatedStorage.Library.Client:GetChildren() do
+    local ok, mod = pcall(require, v)
+    if ok then
+        Client[v.Name] = mod
+    end
+end
+
+-- Same Invoke wrapper as your script
+local function Invoke(name, args)
+    return Client.Network.Invoke(name, unpack(args))
+end
+
+-- SETTINGS
+local EVENT_NAME = "Christmas2025"
+local EGG_INDEX = 5 -- 🎁 Present Egg
+local HATCH_AMOUNT = 35
+local AUTO_HATCH = true
+
+-- Skip animation
+local function skip()
+    VirtualUser:Button1Down(Vector2.new(math.huge, math.huge))
+    VirtualUser:Button1Up(Vector2.new(math.huge, math.huge))
+end
+
+task.spawn(function()
+    while AUTO_HATCH do
+        Invoke("Eggs_RequestPurchase", {
+            EVENT_NAME,
+            EGG_INDEX,
+            HATCH_AMOUNT
+        })
+
+        repeat
+            task.wait()
+            skip()
+        until not Workspace.Camera:FindFirstChild("Eggs")
+
+        task.wait(0.25)
+    end
+end)
+
+print("🎁 Present Egg hatching (Christmas2025)")
