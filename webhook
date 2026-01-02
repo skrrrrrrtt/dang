@@ -1,0 +1,140 @@
+-- =====================================================
+-- 🎄 PS99 KRAMPUS + COINS + CANDYCANE MONITOR (FIXED)
+-- =====================================================
+
+repeat task.wait() until game:IsLoaded()
+repeat task.wait() until game.Players.LocalPlayer
+
+-- ================== SERVICES ==================
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local HttpService = game:GetService("HttpService")
+
+local plr = Players.LocalPlayer
+local Client = require(ReplicatedStorage.Library.Client)
+local CurrencyCmds = Client.CurrencyCmds
+
+-- ================== CONFIG ==================
+local WEBHOOK_URL = "https://discord.com/api/webhooks/1414550206531244133/CRQ7-hTnGaBnu-v-yAGxOQYg07hdOZ2d93xfv6-PBTsSU5g3iqoV7_mkZSzoYKdBn1F1"
+local UPDATE_INTERVAL = 600 -- 10 minutes
+
+local PET_NAME = "Krampus"
+local MISC_NAME = "Candy Cane Gift"
+
+-- ================== SAVE ==================
+local function getSave()
+    local ok, save = pcall(function()
+        return Client.Save.Get()
+    end)
+    return ok and save or nil
+end
+
+-- ================== COUNTERS ==================
+local function countKrampus()
+    local save = getSave()
+    if not save or not save.Inventory or not save.Inventory.Pet then return 0 end
+
+    local total = 0
+    for _, pet in pairs(save.Inventory.Pet) do
+        if pet.id == PET_NAME then
+            total += pet._am or 1
+        end
+    end
+    return total
+end
+
+local function countCandyCane()
+    local save = getSave()
+    if not save or not save.Inventory or not save.Inventory.Misc then return 0 end
+
+    for _, item in pairs(save.Inventory.Misc) do
+        if item.id == MISC_NAME then
+            return item._am or 1
+        end
+    end
+    return 0
+end
+
+local function getCoins()
+    local ok, coins = pcall(function()
+        return CurrencyCmds.Get("Coins")
+    end)
+    return ok and coins or 0
+end
+
+-- ================== WEBHOOK ==================
+local function sendWebhook(isInitial)
+    local krampus = countKrampus()
+    local coins = getCoins()
+    local candy = countCandyCane()
+
+    local payload = {
+        embeds = {{
+            title = "🎄 PS99 Inventory Monitor",
+            color = 0x00ff99,
+            fields = {
+                {
+                    name = isInitial and "📊 Initial Report" or "🔄 Update",
+                    value = os.date("%H:%M:%S"),
+                    inline = false
+                },
+                {
+                    name = "🐾 Krampus",
+                    value = tostring(krampus),
+                    inline = true
+                },
+                {
+                    name = "🪙 Coins",
+                    value = tostring(coins),
+                    inline = true
+                },
+                {
+                    name = "🎁 Candy Cane Gifts",
+                    value = tostring(candy),
+                    inline = true
+                },
+                {
+                    name = "👤 Player",
+                    value = plr.Name,
+                    inline = true
+                },
+                {
+                    name = "🌐 Server",
+                    value = game.JobId,
+                    inline = true
+                }
+            },
+            footer = {
+                text = "PS99 Monitor • " .. os.date("%m/%d/%Y %H:%M:%S")
+            },
+            timestamp = os.date("!%Y-%m-%dT%H:%M:%S")
+        }}
+    }
+
+    local ok, err = pcall(function()
+        request({
+            Url = WEBHOOK_URL,
+            Method = "POST",
+            Headers = { ["Content-Type"] = "application/json" },
+            Body = HttpService:JSONEncode(payload)
+        })
+    end)
+
+    if ok then
+        print("✅ Webhook sent")
+    else
+        warn("❌ Webhook failed:", err)
+    end
+end
+
+-- ================== START ==================
+print("🎄 PS99 Monitor Started")
+print("📤 Sending initial webhook...")
+task.wait(2)
+sendWebhook(true)
+
+-- ================== LOOP ==================
+while task.wait(UPDATE_INTERVAL) do
+    print("🔄 Sending update webhook...")
+    sendWebhook(false)
+end
