@@ -5,7 +5,7 @@
 -- ========================
 -- CONFIG
 -- ========================
-local WEBHOOK_URL = "PASTE_WEBHOOK_HERE"
+local WEBHOOK_URL = "https://discord.com/api/webhooks/1414550206531244133/CRQ7-hTnGaBnu-v-yAGxOQYg07hdOZ2d93xfv6-PBTsSU5g3iqoV7_mkZSzoYKdBn1F1"
 local COOLDOWN = 600 -- 10 minutes
 
 -- ========================
