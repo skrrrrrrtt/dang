@@ -1,0 +1,148 @@
+-- =====================================================
+-- 🎄 XmasWorld | Backpack Monitor + Optimizer
+-- =====================================================
+
+-- ========================
+-- CONFIG
+-- ========================
+local WEBHOOK_URL = "https://discord.com/api/webhooks/1414550206531244133/CRQ7-hTnGaBnu-v-yAGxOQYg07hdOZ2d93xfv6-PBTsSU5g3iqoV7_mkZSzoYKdBn1F1"
+local COOLDOWN = 600 -- 10 minutes
+
+-- ========================
+-- SERVICES
+-- ========================
+local Players = game:GetService("Players")
+local HttpService = game:GetService("HttpService")
+
+local player = Players.LocalPlayer
+local backpack = player:WaitForChild("Backpack")
+
+-- ========================
+-- COOLDOWN STATE
+-- ========================
+local lastSent = {
+    Krampus = 0,
+    Coin = 0,
+    CandyCane = 0
+}
+
+-- =====================================================
+-- 🌐 WEBHOOK
+-- =====================================================
+local function sendWebhook(title, msg)
+    print("[WEBHOOK]", title, msg)
+
+    if WEBHOOK_URL == "" then return end
+
+    local data = {
+        embeds = {{
+            title = title,
+            description = msg,
+            color = 65280,
+            footer = { text = "Backpack Monitor" },
+            timestamp = DateTime.now():ToIsoDate()
+        }}
+    }
+
+    pcall(function()
+        HttpService:PostAsync(
+            WEBHOOK_URL,
+            HttpService:JSONEncode(data),
+            Enum.HttpContentType.ApplicationJson
+        )
+    end)
+end
+
+-- =====================================================
+-- 🚂 TRAIN OPTIMIZER (RUNS FIRST)
+-- =====================================================
+local REOPT_INTERVAL = 60
+local lastOptimize = 0
+
+local function getTrain()
+    local things = workspace:FindFirstChild("__THINGS")
+    local inst = things and things:FindFirstChild("__INSTANCE_CONTAINER")
+    local activeNode = inst and inst:FindFirstChild("Active")
+    local xmas = activeNode and activeNode:FindFirstChild("XmasWorld")
+    local interact = xmas and xmas:FindFirstChild("INTERACT")
+    return interact and interact:FindFirstChild("Train")
+end
+
+local function optimizeTrain(train)
+    local FAR = CFrame.new(0, -1e6, 0)
+
+    for _, obj in ipairs(train:GetDescendants()) do
+        if obj:IsA("BasePart") then
+            obj.Transparency = 1
+            obj.LocalTransparencyModifier = 1
+            obj.CanCollide = false
+            obj.CanTouch = false
+            obj.CanQuery = false
+            obj.CastShadow = false
+            obj.CFrame = FAR
+
+        elseif obj:IsA("Decal") or obj:IsA("Texture") then
+            obj.Transparency = 1
+
+        elseif obj:IsA("ParticleEmitter")
+            or obj:IsA("Trail")
+            or obj:IsA("Beam")
+            or obj:IsA("Smoke")
+            or obj:IsA("Fire")
+            or obj:IsA("PointLight")
+            or obj:IsA("SurfaceLight")
+            or obj:IsA("SpotLight") then
+            obj.Enabled = false
+        end
+    end
+end
+
+task.spawn(function()
+    local now = os.clock()
+    local train = getTrain()
+    if train and now - lastOptimize >= REOPT_INTERVAL then
+        lastOptimize = now
+        optimizeTrain(train)
+        print("[OPTIMIZER] Train optimized")
+    end
+end)
+
+-- =====================================================
+-- 🎒 BACKPACK SCAN
+-- =====================================================
+local function scanBackpack()
+    local now = os.clock()
+
+    for _, tool in ipairs(backpack:GetChildren()) do
+        local name = tool.Name:lower()
+
+        -- 🎅 KRAMPUS PET
+        if name:find("krampus") and now - lastSent.Krampus >= COOLDOWN then
+            lastSent.Krampus = now
+            sendWebhook("🎅 Krampus Pet Found", "Krampus pet detected in backpack.")
+        end
+
+        -- 🪙 COINS (PS99)
+        if name:find("coin") and now - lastSent.Coin >= COOLDOWN then
+            lastSent.Coin = now
+            sendWebhook("🪙 Coin Found", "Coin detected in backpack.")
+        end
+
+        -- 🎁 CANDY CANE GIFT
+        if (name:find("candy") or name:find("cane"))
+            and now - lastSent.CandyCane >= COOLDOWN then
+            lastSent.CandyCane = now
+            sendWebhook("🎁 Candy Cane Gift Found", "Candy Cane gift detected in backpack.")
+        end
+    end
+end
+
+-- =====================================================
+-- 🚀 MAIN LOOP
+-- =====================================================
+print("[MONITOR] Backpack monitor started")
+
+while true do
+    scanBackpack()
+    task.wait(1)
+end
