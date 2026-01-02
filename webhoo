@@ -1,0 +1,193 @@
+-- =====================================================
+-- 🎄 PS99 MONITOR (KRAMPUS + COINS + CANDY CANE)
+-- =====================================================
+
+repeat task.wait() until game:IsLoaded()
+repeat task.wait() until game.Players.LocalPlayer
+
+-- ========================
+-- SERVICES
+-- ========================
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local HttpService = game:GetService("HttpService")
+
+local plr = Players.LocalPlayer
+
+-- ========================
+-- CONFIG
+-- ========================
+local WEBHOOK_URL = "https://discord.com/api/webhooks/1414550206531244133/CRQ7-hTnGaBnu-v-yAGxOQYg07hdOZ2d93xfv6-PBTsSU5g3iqoV7_mkZSzoYKdBn1F1"
+local UPDATE_INTERVAL = 600 -- 10 minutes
+
+local MONITORED_PETS = {
+    "Krampus"
+}
+
+-- ========================
+-- SAVE ACCESS
+-- ========================
+local function getSave()
+    local ok, sd = pcall(function()
+        return require(ReplicatedStorage.Library.Client.Save).Get()
+    end)
+    if ok then return sd end
+    return nil
+end
+
+-- ========================
+-- PET COUNT (YOUR WORKING LOGIC)
+-- ========================
+local function countPets()
+    local sd = getSave()
+    if not sd then return nil end
+
+    local petCounts = {}
+    local totalMonitored = 0
+
+    for _, petName in pairs(MONITORED_PETS) do
+        petCounts[petName] = {
+            Normal = 0,
+            Golden = 0,
+            Rainbow = 0,
+            ShinyRainbow = 0,
+            Total = 0
+        }
+    end
+
+    if sd.Inventory and sd.Inventory.Pet then
+        for _, pet in pairs(sd.Inventory.Pet) do
+            for _, monitoredPet in pairs(MONITORED_PETS) do
+                if pet.id == monitoredPet then
+                    local amount = pet._am or 1
+                    local pt = pet.pt
+                    local sh = pet.sh == true
+
+                    if sh and pt == 2 then
+                        petCounts[pet.id].ShinyRainbow += amount
+                    elseif pt == 2 then
+                        petCounts[pet.id].Rainbow += amount
+                    elseif pt == 1 then
+                        petCounts[pet.id].Golden += amount
+                    else
+                        petCounts[pet.id].Normal += amount
+                    end
+
+                    petCounts[pet.id].Total += amount
+                    totalMonitored += amount
+                end
+            end
+        end
+    end
+
+    return petCounts, totalMonitored, sd
+end
+
+-- ========================
+-- COINS
+-- ========================
+local function getCoins(sd)
+    for k, v in pairs(sd.Currency or {}) do
+        if k:lower():find("coin") then
+            return typeof(v) == "table" and v.Amount or v
+        end
+    end
+    return 0
+end
+
+-- ========================
+-- CANDY CANE GIFTS
+-- ========================
+local function getCandyCane(sd)
+    local total = 0
+
+    for _, category in pairs(sd.Inventory or {}) do
+        if typeof(category) == "table" then
+            for _, item in pairs(category) do
+                if item.id and item.id:lower():find("candy") then
+                    total += item._am or 1
+                end
+            end
+        end
+    end
+
+    return total
+end
+
+-- ========================
+-- WEBHOOK
+-- ========================
+local function sendWebhook(petCounts, totalPets, coins, candyCane, first)
+    if WEBHOOK_URL == "" then return end
+
+    local fields = {}
+
+    table.insert(fields, {
+        name = first and "📊 Initial Report" or "🔄 Update",
+        value = os.date("%H:%M:%S"),
+        inline = false
+    })
+
+    for petName, counts in pairs(petCounts) do
+        local value = counts.Total > 0 and
+            ("Normal: "..counts.Normal..
+            "\nGolden: "..counts.Golden..
+            "\nRainbow: "..counts.Rainbow..
+            "\nShiny Rainbow: "..counts.ShinyRainbow..
+            "\n**Total:** "..counts.Total)
+            or "None"
+
+        table.insert(fields, {
+            name = "🐾 "..petName,
+            value = value,
+            inline = true
+        })
+    end
+
+    table.insert(fields, { name = "🪙 Coins", value = tostring(coins), inline = true })
+    table.insert(fields, { name = "🎁 Candy Cane Gifts", value = tostring(candyCane), inline = true })
+    table.insert(fields, { name = "👤 Player", value = plr.Name, inline = true })
+    table.insert(fields, { name = "🌐 Server", value = game.JobId, inline = true })
+
+    local payload = {
+        embeds = {{
+            title = "🎄 PS99 Inventory Monitor",
+            color = 0x00FF00,
+            fields = fields,
+            footer = { text = "PS99 Monitor • "..os.date("%m/%d/%Y %H:%M:%S") },
+            timestamp = os.date("!%Y-%m-%dT%H:%M:%S")
+        }}
+    }
+
+    request({
+        Url = WEBHOOK_URL,
+        Method = "POST",
+        Headers = { ["Content-Type"] = "application/json" },
+        Body = HttpService:JSONEncode(payload)
+    })
+
+    print("📤 Webhook sent")
+end
+
+-- ========================
+-- MAIN
+-- ========================
+print("🎄 PS99 MONITOR STARTED")
+
+task.wait(3)
+
+local petCounts, totalPets, sd = countPets()
+if petCounts then
+    local coins = getCoins(sd)
+    local candyCane = getCandyCane(sd)
+    sendWebhook(petCounts, totalPets, coins, candyCane, true)
+end
+
+while task.wait(UPDATE_INTERVAL) do
+    petCounts, totalPets, sd = countPets()
+    if petCounts then
+        local coins = getCoins(sd)
+        local candyCane = getCandyCane(sd)
+        sendWebhook(petCounts, totalPets, coins, candyCane, false)
+    end
+end
