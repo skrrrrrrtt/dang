@@ -1,0 +1,132 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+
+-- Storage for all results
+local results = {}
+
+local function log(text)
+    print(text)
+    table.insert(results, text)
+end
+
+log("=== PS99 QUEST SCANNER STARTING ===")
+log("Time: " .. os.date("%c"))
+log("")
+
+-- SCAN 1: Check Save Data
+log("\n[1] SCANNING SAVE DATA...")
+pcall(function()
+    local Library = ReplicatedStorage:WaitForChild("Library")
+    local Client = Library:WaitForChild("Client")
+    local Save = require(Client:WaitForChild("Save"))
+    local saveData = Save.Get()
+    
+    log("Save Data Keys:")
+    for key, value in pairs(saveData) do
+        if string.find(string.lower(key), "quest") then
+            log("  ✅ FOUND: " .. key .. " = " .. typeof(value))
+            if typeof(value) == "table" then
+                for k, v in pairs(value) do
+                    log("    -> " .. tostring(k) .. " : " .. tostring(v))
+                end
+            end
+        end
+    end
+end)
+
+-- SCAN 2: Check Library Directory for Quest modules
+log("\n[2] SCANNING LIBRARY DIRECTORY...")
+pcall(function()
+    local Directory = ReplicatedStorage.Library:FindFirstChild("Directory")
+    if Directory then
+        for _, module in pairs(Directory:GetChildren()) do
+            if string.find(string.lower(module.Name), "quest") then
+                log("  ✅ FOUND MODULE: " .. module.Name)
+                pcall(function()
+                    local data = require(module)
+                    log("    Module Type: " .. typeof(data))
+                    if typeof(data) == "table" then
+                        for k, v in pairs(data) do
+                            log("      -> " .. tostring(k))
+                        end
+                    end
+                end)
+            end
+        end
+    end
+end)
+
+-- SCAN 3: Check Network Remotes
+log("\n[3] SCANNING NETWORK REMOTES...")
+for _, remote in pairs(ReplicatedStorage.Network:GetChildren()) do
+    if string.find(string.lower(remote.Name), "quest") then
+        log("  ✅ FOUND REMOTE: " .. remote.Name .. " - " .. remote.ClassName)
+    end
+end
+
+-- SCAN 4: Check PlayerGui for Quest UI
+log("\n[4] SCANNING PLAYER GUI...")
+wait(1)
+for _, gui in pairs(player.PlayerGui:GetChildren()) do
+    if string.find(string.lower(gui.Name), "quest") then
+        log("  ✅ FOUND GUI: " .. gui.Name)
+    end
+end
+
+-- SCAN 5: Deep scan for quest-related text in GUI
+log("\n[5] DEEP SCANNING GUI FOR QUEST TEXT...")
+for _, descendant in pairs(player.PlayerGui:GetDescendants()) do
+    if descendant:IsA("TextLabel") or descendant:IsA("TextButton") then
+        local text = descendant.Text
+        if string.match(text, "%d+/%d+") and (
+            string.find(string.lower(text), "break") or
+            string.find(string.lower(text), "catch") or
+            string.find(string.lower(text), "collect") or
+            string.find(string.lower(text), "coin") or
+            string.find(string.lower(text), "chest")
+        ) then
+            log("  ✅ FOUND QUEST IN GUI: " .. text)
+            log("    Path: " .. descendant:GetFullName())
+        end
+    end
+end
+
+-- SCAN 6: Hook network to see what data comes through
+log("\n[6] HOOKING NETWORK UPDATES...")
+local questRemote = ReplicatedStorage.Network:FindFirstChild("Daily Quests: Update")
+if questRemote then
+    questRemote.OnClientEvent:Connect(function(...)
+        local args = {...}
+        log("  ✅ QUEST UPDATE DETECTED!")
+        log("  Number of arguments: " .. #args)
+        for i, arg in pairs(args) do
+            log("  Arg " .. i .. " : " .. typeof(arg))
+            if typeof(arg) == "table" then
+                for k, v in pairs(arg) do
+                    log("    -> " .. tostring(k) .. " : " .. tostring(v))
+                end
+            end
+        end
+    end)
+    log("  Listening for quest updates...")
+end
+
+-- SCAN 7: Try invoking Network functions
+log("\n[7] TRYING TO INVOKE QUEST REMOTES...")
+pcall(function()
+    local result = ReplicatedStorage.Network:FindFirstChild("Daily Quests: Get")
+    if result then
+        log("  ✅ Found 'Daily Quests: Get' - attempting invoke...")
+        local data = result:InvokeServer()
+        log("  Result: " .. tostring(data))
+    end
+end)
+
+log("\n=== SCAN COMPLETE ===")
+
+-- Save to file
+wait(2)
+local finalText = table.concat(results, "\n")
+writefile("PS99_Quest_Scan_Results.txt", finalText)
+log("\n✅ Results saved to: PS99_Quest_Scan_Results.txt")
