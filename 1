@@ -1,0 +1,47 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+
+-- Get the Library module (PS99 stores data here)
+local Library = ReplicatedStorage:WaitForChild("Library")
+local Client = Library:WaitForChild("Client")
+
+-- Try to get Save module which contains player data
+local Save = require(Client:WaitForChild("Save"))
+
+-- Function to get and print quests
+local function showQuests()
+    local saveData = Save.Get()
+    
+    if saveData and saveData.DailyQuests then
+        print("=== YOUR QUESTS ===")
+        for questId, questData in pairs(saveData.DailyQuests) do
+            if questData._am then -- _am is the current progress
+                print(string.format("%s: %d/%d", 
+                    questId, 
+                    questData._am or 0, 
+                    questData._maxProgress or 0
+                ))
+            end
+        end
+        print("===================")
+    else
+        print("No quests found!")
+    end
+end
+
+-- Show quests immediately
+wait(3) -- Wait for game to fully load
+showQuests()
+
+-- Update when quests change
+local questRemote = ReplicatedStorage.Network:FindFirstChild("Daily Quests: Update")
+if questRemote then
+    questRemote.OnClientEvent:Connect(function()
+        wait(0.5)
+        showQuests()
+    end)
+end
+
+-- Make it callable
+_G.showQuests = showQuests
