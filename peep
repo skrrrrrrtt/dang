@@ -1,0 +1,221 @@
+--[[
+    Fixed Christmas 2025 Egg Hatcher
+    Corrected egg paths based on game structure
+]]--
+
+-- Configuration
+local CONFIG = {
+    -- FIXED: Just use the egg names without full paths
+    EGGS = {
+        "Candy Cane Egg",
+        "Icy Egg",
+        "Pine Tree Egg"
+    },
+    
+    -- How many eggs to hatch at once (1, 3, or 8)
+    HATCH_AMOUNT = 36,
+    
+    -- Wait time between hatches
+    WAIT_TIME = 1,
+    
+    -- Max attempts per egg before cycling
+    MAX_ATTEMPTS = 3
+}
+
+-- Services
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+local VirtualUser = game:GetService("VirtualUser")
+
+local LocalPlayer = Players.LocalPlayer
+
+-- Load Client Library
+local Client = {}
+for _, v in ReplicatedStorage.Library.Client:GetChildren() do
+    local success, result = pcall(require, v)
+    if success then
+        Client[v.Name] = result
+    end
+end
+
+-- Helper Functions
+local function Invoke(eventName, args)
+    return Client.Network.Invoke(eventName, unpack(args))
+end
+
+local function clickToSkip()
+    VirtualUser:Button1Down(Vector2.new(math.huge, math.huge))
+    VirtualUser:Button1Up(Vector2.new(math.huge, math.huge))
+end
+
+local function waitForEggAnimation(timeout)
+    local startTime = tick()
+    while tick() - startTime < (timeout or 5) do
+        if Workspace.Camera:FindFirstChild("Eggs") then
+            return true
+        end
+        task.wait(0.1)
+    end
+    return false
+end
+
+local function skipEggAnimation()
+    while Workspace.Camera:FindFirstChild("Eggs") do
+        clickToSkip()
+        task.wait(0.05)
+    end
+end
+
+-- Get all available eggs from the game
+local function getAllAvailableEggs()
+    local availableEggs = {}
+    
+    -- Try to get eggs from Directory
+    local success, result = pcall(function()
+        local eggsDirectory = ReplicatedStorage:FindFirstChild("__DIRECTORY")
+        if eggsDirectory then
+            local eggs = eggsDirectory:FindFirstChild("Eggs")
+            if eggs then
+                local events = eggs:FindFirstChild("Events")
+                if events then
+                    local christmas = events:FindFirstChild("Christmas2025")
+                    if christmas then
+                        for _, egg in ipairs(christmas:GetChildren()) do
+                            table.insert(availableEggs, egg.Name)
+                        end
+                    end
+                end
+            end
+        end
+    end)
+    
+    if success and #availableEggs > 0 then
+        return availableEggs
+    end
+    
+    -- Fallback to config eggs
+    return CONFIG.EGGS
+end
+
+-- Main Hatch Function with better error handling
+local function hatchEgg(eggName, amount)
+    print(string.format("[HATCH] Attempting: %s (x%d)", eggName, amount))
+    
+    -- Try multiple path formats
+    local pathsToTry = {
+        eggName,  -- Just the name
+        "Events.Christmas2025." .. eggName,  -- With event path
+        string.format("%s | %s", eggName:match("%d+") or "1", eggName)  -- Number | Name format
+    }
+    
+    for _, path in ipairs(pathsToTry) do
+        local success, result = pcall(function()
+            return Invoke("Eggs_RequestPurchase", {path, amount})
+        end)
+        
+        if success then
+            print("[SUCCESS] Purchase request sent with path:", path)
+            
+            -- Wait for animation
+            if waitForEggAnimation(5) then
+                print("[SKIP] Skipping animation...")
+                skipEggAnimation()
+                print(string.format("[COMPLETE] Hatched %s x%d", eggName, amount))
+                return true, "success"
+            else
+                warn("[WARNING] Animation didn't appear, but purchase may have succeeded")
+                return true, "no_animation"
+            end
+        else
+            print(string.format("[DEBUG] Path failed: %s - %s", path, tostring(result)))
+        end
+    end
+    
+    warn("[ERROR] All paths failed for:", eggName)
+    return false, "all_paths_failed"
+end
+
+-- Try to find the correct egg name format
+local function findEggInDirectory(eggName)
+    local success, eggs = pcall(function()
+        return ReplicatedStorage.__DIRECTORY.Eggs.Events.Christmas2025:GetChildren()
+    end)
+    
+    if success then
+        for _, egg in ipairs(eggs) do
+            if egg.Name:lower():find(eggName:lower()) or eggName:lower():find(egg.Name:lower()) then
+                return egg.Name
+            end
+        end
+    end
+    
+    return eggName
+end
+
+-- Main Script
+print("=" .. string.rep("=", 50))
+print("🎄 FIXED Christmas 2025 Egg Hatcher 🎄")
+print("=" .. string.rep("=", 50))
+
+-- Detect available eggs
+local availableEggs = getAllAvailableEggs()
+print("Detected eggs in game:")
+for i, egg in ipairs(availableEggs) do
+    print(string.format("  %d. %s", i, egg))
+end
+
+print("\nSettings:")
+print("  • Hatch Amount:", CONFIG.HATCH_AMOUNT)
+print("  • Wait Time:", CONFIG.WAIT_TIME, "seconds")
+print("  • Max Attempts per Egg:", CONFIG.MAX_ATTEMPTS)
+print("=" .. string.rep("=", 50))
+
+local currentIndex = 1
+local attemptCount = 0
+local totalHatches = 0
+local eggsToUse = #availableEggs > 0 and availableEggs or CONFIG.EGGS
+
+-- Main Loop
+while task.wait(CONFIG.WAIT_TIME) do
+    -- Safety check
+    if not LocalPlayer or not LocalPlayer.Character then
+        warn("Player left game, stopping...")
+        break
+    end
+    
+    -- Get current egg
+    local targetEgg = eggsToUse[currentIndex]
+    
+    -- Try to find correct name in directory
+    local correctName = findEggInDirectory(targetEgg)
+    
+    -- Try to hatch
+    local success, reason = hatchEgg(correctName, CONFIG.HATCH_AMOUNT)
+    
+    if success then
+        totalHatches = totalHatches + 1
+        attemptCount = 0
+        print(string.format("✅ [STATS] Total successful hatches: %d\n", totalHatches))
+        
+        -- Move to next egg on success
+        currentIndex = currentIndex % #eggsToUse + 1
+    else
+        attemptCount = attemptCount + 1
+        warn(string.format("❌ [FAIL] Attempt %d/%d failed for %s", 
+            attemptCount, CONFIG.MAX_ATTEMPTS, targetEgg))
+        
+        -- If max attempts reached, try next egg
+        if attemptCount >= CONFIG.MAX_ATTEMPTS then
+            print("[CYCLE] Max attempts reached, trying next egg...")
+            currentIndex = currentIndex % #eggsToUse + 1
+            attemptCount = 0
+            task.wait(2) -- Extra wait when cycling
+        end
+    end
+end
+
+print("=" .. string.rep("=", 50))
+print("🎄 Egg Hatcher Stopped 🎄")
+print(string.format("Total Eggs Hatched: %d", totalHatches))
+print("=" .. string.rep("=", 50))
