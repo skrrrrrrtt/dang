@@ -1,0 +1,500 @@
+-- =====================================================
+-- 🎄 PS99 ADVANCED CHRISTMAS PET MONITOR (WEBHOOK ONLY)
+-- =====================================================
+
+repeat task.wait() until game:IsLoaded()
+repeat task.wait() until game.Players.LocalPlayer
+
+local plr = game.Players.LocalPlayer
+local HttpService = game:GetService("HttpService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+local VirtualUser = game:GetService("VirtualUser")
+
+-- ================= 🎨 COLORS =================
+local COLORS = {
+    Primary = 0xFF0000,      -- Red
+    Success = 0x00FF00,      -- Green
+    Warning = 0xFFFF00,      -- Yellow
+    Info = 0x00FFFF,         -- Cyan
+    Christmas = 0x8B0000     -- Dark Red
+}
+
+-- ================= ⚙️ CONFIGURATION =================
+local CONFIG = {
+    -- Discord Webhook
+    WEBHOOK_URL = "https://discord.com/api/webhooks/1440202664389640242/RR2NiQ4WqbtRy4zH9YmmQcdW4YgPCqz22HCBnW-XVd0nNvH1WklGYX_eDjoyQyF8ruoU",
+    
+    -- Update intervals (in seconds)
+    UPDATE_INTERVAL = 600,        -- 10 minutes
+    QUICK_UPDATE_INTERVAL = 60,   -- 1 minute (for significant changes)
+    
+    -- Monitored pets
+    MONITORED_PETS = {
+        "Candycane Kitsune",
+        "Hippomint",
+        "Elf Golem"
+    },
+    
+    -- Advanced Features
+    TRACK_HOURLY_GAINS = true,
+    ALERT_ON_HUGE = true,          -- Alert when getting huge pets
+    ALERT_ON_SHINY_RAINBOW = true,
+    PREDICT_NEXT_MILESTONE = true,
+    
+    -- Performance
+    OPTIMIZE_XMASWORLD = true
+}
+
+-- ================= 📊 SESSION DATA =================
+local SessionData = {
+    startTime = os.time(),
+    startInventory = {},
+    currentInventory = {},
+    hourlyGains = {},
+    bestHourlyRate = 0,
+    hugeCount = 0,
+    alerts = {}
+}
+
+-- ================= 🛡️ ANTI-AFK =================
+print("🛡️ Initializing Anti-AFK...")
+
+pcall(function()
+    game:GetService("Players").LocalPlayer.PlayerScripts.Scripts.Core["Idle Tracking"].Enabled = false
+end)
+
+if getconnections then
+    for _, v in pairs(getconnections(game.Players.LocalPlayer.Idled)) do
+        v:Disable()
+    end
+end
+
+task.spawn(function()
+    while true do
+        task.wait(900) -- 15 minutes
+        VirtualUser:Button2Down(Vector2.new(0,0), Workspace.CurrentCamera.CFrame)
+        task.wait(1)
+        VirtualUser:Button2Up(Vector2.new(0,0), Workspace.CurrentCamera.CFrame)
+    end
+end)
+
+-- ================= 🎄 XMASWORLD OPTIMIZER =================
+if CONFIG.OPTIMIZE_XMASWORLD and not _G.VAR_OPTIMIZE_XMASWORLD then
+    _G.VAR_OPTIMIZE_XMASWORLD = true
+    print("🎄 Optimizing XmasWorld...")
+    
+    local function optimizeTrain()
+        local train = Workspace:FindFirstChild("__THINGS")
+        train = train and train:FindFirstChild("__INSTANCE_CONTAINER")
+        train = train and train:FindFirstChild("Active")
+        train = train and train:FindFirstChild("XmasWorld")
+        train = train and train:FindFirstChild("INTERACT")
+        train = train and train:FindFirstChild("Train")
+        
+        if not train then return false end
+        
+        local FAR_CFRAME = CFrame.new(0, -1e6, 0)
+        
+        for _, obj in ipairs(train:GetDescendants()) do
+            if obj:IsA("BasePart") then
+                obj.LocalTransparencyModifier = 1
+                obj.Transparency = 1
+                obj.CanCollide = false
+                obj.CanTouch = false
+                obj.CanQuery = false
+                obj.CastShadow = false
+                obj.CFrame = FAR_CFRAME
+            elseif obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Beam") then
+                obj.Enabled = false
+            elseif obj:IsA("PointLight") or obj:IsA("SpotLight") or obj:IsA("SurfaceLight") then
+                obj.Enabled = false
+            end
+        end
+        
+        return true
+    end
+    
+    task.spawn(function()
+        while true do
+            pcall(optimizeTrain)
+            task.wait(60)
+        end
+    end)
+end
+
+-- ================= 📦 HELPER FUNCTIONS =================
+local function getSave()
+    local ok, data = pcall(function()
+        return require(ReplicatedStorage.Library.Client.Save).Get()
+    end)
+    return ok and data or nil
+end
+
+local function formatNumber(num)
+    if num >= 1000000 then
+        return string.format("%.2fM", num / 1000000)
+    elseif num >= 1000 then
+        return string.format("%.2fK", num / 1000)
+    else
+        return tostring(num)
+    end
+end
+
+local function formatTime(seconds)
+    local hours = math.floor(seconds / 3600)
+    local minutes = math.floor((seconds % 3600) / 60)
+    local secs = seconds % 60
+    
+    if hours > 0 then
+        return string.format("%dh %dm %ds", hours, minutes, secs)
+    elseif minutes > 0 then
+        return string.format("%dm %ds", minutes, secs)
+    else
+        return string.format("%ds", secs)
+    end
+end
+
+-- ================= 📊 PET COUNTING =================
+local function countPets()
+    local sd = getSave()
+    if not sd or not sd.Inventory or not sd.Inventory.Pet then 
+        return nil 
+    end
+    
+    local results = {}
+    
+    for _, petName in ipairs(CONFIG.MONITORED_PETS) do
+        results[petName] = {
+            Normal = 0,
+            Golden = 0,
+            Rainbow = 0,
+            ShinyRainbow = 0,
+            Huge = 0,
+            Total = 0,
+            Value = 0  -- Estimated value
+        }
+    end
+    
+    for _, pet in pairs(sd.Inventory.Pet) do
+        local petId = pet.id
+        
+        -- Check if it's a monitored pet
+        for _, monitoredName in ipairs(CONFIG.MONITORED_PETS) do
+            if petId:find(monitoredName) or petId == monitoredName then
+                local amount = pet._am or 1
+                local pt = pet.pt or 0
+                local shiny = pet.sh == true
+                local huge = petId:find("Huge") ~= nil
+                
+                if huge then
+                    results[monitoredName].Huge = results[monitoredName].Huge + amount
+                elseif shiny and pt == 2 then
+                    results[monitoredName].ShinyRainbow = results[monitoredName].ShinyRainbow + amount
+                elseif pt == 2 then
+                    results[monitoredName].Rainbow = results[monitoredName].Rainbow + amount
+                elseif pt == 1 then
+                    results[monitoredName].Golden = results[monitoredName].Golden + amount
+                else
+                    results[monitoredName].Normal = results[monitoredName].Normal + amount
+                end
+                
+                results[monitoredName].Total = results[monitoredName].Total + amount
+                
+                -- Estimate value (multipliers)
+                local multiplier = 1
+                if huge then multiplier = 1000
+                elseif shiny and pt == 2 then multiplier = 100
+                elseif pt == 2 then multiplier = 50
+                elseif pt == 1 then multiplier = 10
+                end
+                
+                results[monitoredName].Value = results[monitoredName].Value + (amount * multiplier)
+                
+                break
+            end
+        end
+    end
+    
+    return results
+end
+
+-- ================= 📈 RATE CALCULATIONS =================
+local function calculateRates(petName, currentTotal)
+    local elapsed = os.time() - SessionData.startTime
+    if elapsed <= 0 then return 0, 0 end
+    
+    local startTotal = SessionData.startInventory[petName] and SessionData.startInventory[petName].Total or 0
+    local gained = currentTotal - startTotal
+    
+    local perHour = (gained / elapsed) * 3600
+    local perDay = perHour * 24
+    
+    return math.floor(perHour * 100) / 100, math.floor(perDay * 100) / 100
+end
+
+local function updateHourlyStats(stats)
+    local currentHour = math.floor((os.time() - SessionData.startTime) / 3600)
+    
+    if not SessionData.hourlyGains[currentHour] then
+        SessionData.hourlyGains[currentHour] = {}
+    end
+    
+    for petName, data in pairs(stats) do
+        SessionData.hourlyGains[currentHour][petName] = data.Total
+    end
+end
+
+local function predictNextMilestone(petName, currentTotal, ratePerHour)
+    if ratePerHour <= 0 then return "N/A" end
+    
+    local milestones = {100, 500, 1000, 5000, 10000, 50000, 100000}
+    
+    for _, milestone in ipairs(milestones) do
+        if currentTotal < milestone then
+            local remaining = milestone - currentTotal
+            local hoursNeeded = remaining / ratePerHour
+            return string.format("%d (ETA: %s)", milestone, formatTime(math.floor(hoursNeeded * 3600)))
+        end
+    end
+    
+    return "All milestones reached! 🎉"
+end
+
+-- ================= 🔔 ALERT SYSTEM =================
+local function sendAlert(title, description, color)
+    if CONFIG.WEBHOOK_URL == "" or CONFIG.WEBHOOK_URL == "YOUR_WEBHOOK_HERE" then return end
+    
+    local alert = {
+        title = title,
+        description = description,
+        color = color or COLORS.Warning,
+        timestamp = os.date("!%Y-%m-%dT%H:%M:%S")
+    }
+    
+    table.insert(SessionData.alerts, alert)
+    
+    pcall(function()
+        request({
+            Url = CONFIG.WEBHOOK_URL,
+            Method = "POST",
+            Headers = {["Content-Type"] = "application/json"},
+            Body = HttpService:JSONEncode({
+                embeds = {{
+                    title = "🔔 " .. title,
+                    description = description,
+                    color = color or COLORS.Warning,
+                    footer = {text = "PS99 Alert System"},
+                    timestamp = os.date("!%Y-%m-%dT%H:%M:%S")
+                }}
+            })
+        })
+    end)
+end
+
+-- ================= 📤 WEBHOOK SENDER =================
+local function sendWebhook(stats)
+    if CONFIG.WEBHOOK_URL == "" or CONFIG.WEBHOOK_URL == "YOUR_WEBHOOK_HERE" then 
+        warn("⚠️ No webhook URL configured!")
+        return 
+    end
+    
+    local elapsed = os.time() - SessionData.startTime
+    local hours = math.floor(elapsed / 3600)
+    local minutes = math.floor((elapsed % 3600) / 60)
+    
+    local fields = {}
+    
+    -- Add stats for each pet
+    for _, petName in ipairs(CONFIG.MONITORED_PETS) do
+        local data = stats[petName]
+        if data then
+            local perHour, perDay = calculateRates(petName, data.Total)
+            
+            local value = string.format(
+                "**Normal:** %s\n**Golden:** %s\n**Rainbow:** %s\n**✨ Shiny Rainbow:** %s\n**🌟 Huge:** %s\n\n**Total:** %s\n**Value:** ~%s pts",
+                formatNumber(data.Normal),
+                formatNumber(data.Golden),
+                formatNumber(data.Rainbow),
+                formatNumber(data.ShinyRainbow),
+                formatNumber(data.Huge),
+                formatNumber(data.Total),
+                formatNumber(data.Value)
+            )
+            
+            table.insert(fields, {
+                name = "🐾 " .. petName,
+                value = value,
+                inline = true
+            })
+            
+            local rateValue = string.format(
+                "**Per Hour:** %.2f\n**Per Day:** %.2f",
+                perHour, perDay
+            )
+            
+            if CONFIG.PREDICT_NEXT_MILESTONE then
+                rateValue = rateValue .. "\n**Next:** " .. predictNextMilestone(petName, data.Total, perHour)
+            end
+            
+            table.insert(fields, {
+                name = "📈 " .. petName .. " Rates",
+                value = rateValue,
+                inline = true
+            })
+            
+            table.insert(fields, {
+                name = "\u{200B}",
+                value = "\u{200B}",
+                inline = true
+            })
+        end
+    end
+    
+    -- Session stats
+    table.insert(fields, {
+        name = "📊 Session Stats",
+        value = string.format(
+            "**Time:** %dh %dm\n**Total Huge:** %s",
+            hours, minutes,
+            formatNumber(SessionData.hugeCount)
+        ),
+        inline = true
+    })
+    
+    table.insert(fields, {
+        name = "👤 Player Info",
+        value = string.format(
+            "**Name:** %s\n**Server:** `%s`",
+            plr.Name,
+            game.JobId:sub(1, 8) .. "..."
+        ),
+        inline = true
+    })
+    
+    local payload = {
+        embeds = {{
+            title = "🎄 Christmas Pet Monitor - Advanced Report",
+            description = "**Monitored Pets:** " .. table.concat(CONFIG.MONITORED_PETS, ", "),
+            color = COLORS.Christmas,
+            fields = fields,
+            footer = {text = "PS99 Advanced Monitor v2.0 | Next update in " .. CONFIG.UPDATE_INTERVAL .. "s"},
+            timestamp = os.date("!%Y-%m-%dT%H:%M:%S"),
+            thumbnail = {
+                url = "https://tr.rbxcdn.com/180DAY-e098d5e7dfe08a67c8d8bb8e808f9be4/150/150/Image/Webp/noFilter"
+            }
+        }}
+    }
+    
+    pcall(function()
+        request({
+            Url = CONFIG.WEBHOOK_URL,
+            Method = "POST",
+            Headers = {["Content-Type"] = "application/json"},
+            Body = HttpService:JSONEncode(payload)
+        })
+    end)
+    
+    print("✅ Webhook sent successfully!")
+end
+
+-- ================= 🎯 PET CHANGE DETECTOR =================
+local function detectChanges(oldStats, newStats)
+    for petName, newData in pairs(newStats) do
+        local oldData = oldStats[petName]
+        if oldData then
+            -- Check for Huge
+            if newData.Huge > oldData.Huge and CONFIG.ALERT_ON_HUGE then
+                local gained = newData.Huge - oldData.Huge
+                SessionData.hugeCount = SessionData.hugeCount + gained
+                
+                sendAlert(
+                    "🌟 HUGE PET DETECTED!",
+                    string.format("**%s** got **%d HUGE %s**! 🎉\n\nTotal Huge %s: %d\nSession Total: %d", 
+                        plr.Name, 
+                        gained,
+                        petName, 
+                        petName,
+                        newData.Huge,
+                        SessionData.hugeCount),
+                    COLORS.Success
+                )
+            end
+            
+            -- Check for Shiny Rainbow
+            if newData.ShinyRainbow > oldData.ShinyRainbow and CONFIG.ALERT_ON_SHINY_RAINBOW then
+                local gained = newData.ShinyRainbow - oldData.ShinyRainbow
+                
+                sendAlert(
+                    "✨ Shiny Rainbow Detected!",
+                    string.format("**%s** got **%d Shiny Rainbow %s**!\n\nTotal: %d", 
+                        plr.Name, 
+                        gained,
+                        petName, 
+                        newData.ShinyRainbow),
+                    COLORS.Info
+                )
+            end
+        end
+    end
+end
+
+-- ================= 🔄 MAIN LOOP =================
+print("="..string.rep("=", 60))
+print("🎄 PS99 ADVANCED CHRISTMAS MONITOR STARTED")
+print("="..string.rep("=", 60))
+print("📊 Monitoring:", table.concat(CONFIG.MONITORED_PETS, ", "))
+print("🔔 Alerts:", (CONFIG.ALERT_ON_HUGE and "Huge ✓" or "") .. (CONFIG.ALERT_ON_SHINY_RAINBOW and " | Shiny Rainbow ✓" or ""))
+print("⏱️  Update Interval:", CONFIG.UPDATE_INTERVAL, "seconds")
+print("="..string.rep("=", 60))
+
+-- Initialize
+task.wait(3)
+local initialStats = countPets()
+if initialStats then
+    SessionData.startInventory = initialStats
+    SessionData.currentInventory = initialStats
+    
+    -- Count initial huge pets
+    for _, data in pairs(initialStats) do
+        SessionData.hugeCount = SessionData.hugeCount + data.Huge
+    end
+    
+    print("✅ Initial inventory captured")
+    
+    -- Send initial report
+    sendWebhook(initialStats)
+end
+
+-- Main monitoring loop
+local firstRun = true
+task.spawn(function()
+    while true do
+        task.wait(CONFIG.UPDATE_INTERVAL)
+        
+        local stats = countPets()
+        
+        if stats then
+            -- Detect changes
+            if not firstRun then
+                detectChanges(SessionData.currentInventory, stats)
+            end
+            
+            -- Update tracking
+            SessionData.currentInventory = stats
+            
+            if CONFIG.TRACK_HOURLY_GAINS then
+                updateHourlyStats(stats)
+            end
+            
+            -- Send webhook
+            sendWebhook(stats)
+            
+            firstRun = false
+        else
+            warn("⚠️ Failed to count pets")
+        end
+    end
+end)
+
+print("✅ Monitor is running! Webhook updates every", CONFIG.UPDATE_INTERVAL, "seconds")
