@@ -1,0 +1,127 @@
+--[[
+    ✅ WORKING Christmas Egg Hatcher - FINAL VERSION
+    Based on multiple working PS99 scripts
+]]--
+
+repeat task.wait() until game:IsLoaded()
+
+-- Services
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+local VirtualUser = game:GetService("VirtualUser")
+
+local player = Players.LocalPlayer
+local Network = ReplicatedStorage.Network
+
+-- ⚙️ CONFIGURATION
+local CONFIG = {
+    HATCH_AMOUNT = 36,  -- 1, 3, or 8
+    WAIT_TIME = 0.25,  -- Seconds between hatches
+    SKIP_ANIMATION = true,  -- Skip egg animation
+    
+    -- Christmas eggs (these rotate hourly)
+    EGGS = {
+        "Candy Cane Egg",
+        "Icy Egg",
+        "Pine Tree Egg"
+    }
+}
+
+print("="..string.rep("=", 60))
+print("🎄 CHRISTMAS EGG HATCHER - FINAL WORKING VERSION 🎄")
+print("="..string.rep("=", 60))
+print("\n⚙️ Settings:")
+print("  • Hatch Amount:", CONFIG.HATCH_AMOUNT)
+print("  • Wait Time:", CONFIG.WAIT_TIME, "seconds")
+print("  • Skip Animation:", CONFIG.SKIP_ANIMATION)
+print("\n🥚 Target Eggs:")
+for i, egg in ipairs(CONFIG.EGGS) do
+    print(string.format("  %d. %s", i, egg))
+end
+print("\n"..string.rep("=", 60))
+
+-- Anti-AFK
+player.Idled:Connect(function()
+    VirtualUser:Button2Down(Vector2.new(0,0), Workspace.CurrentCamera.CFrame)
+    task.wait(1)
+    VirtualUser:Button2Up(Vector2.new(0,0), Workspace.CurrentCamera.CFrame)
+end)
+
+-- Skip animation (method from reference scripts)
+if CONFIG.SKIP_ANIMATION then
+    pcall(function()
+        local eggScript = player.PlayerScripts.Scripts.Game:FindFirstChild("Egg Opening Frontend")
+        if eggScript then
+            eggScript.Disabled = true
+            print("✅ Animation skip enabled")
+        end
+    end)
+end
+
+-- Main hatching function
+local function hatchEgg(eggName, amount)
+    print(string.format("\n[HATCH] Attempting: %s (x%d)", eggName, amount))
+    
+    local success, result = pcall(function()
+        return Network.Eggs_RequestPurchase:InvokeServer(eggName, amount)
+    end)
+    
+    if success then
+        if result == false then
+            warn("[FAIL] Request returned false - egg may not be available")
+            return false
+        end
+        print("[SUCCESS] ✅ Hatched successfully!")
+        return true
+    else
+        warn("[ERROR] Request failed:", tostring(result))
+        return false
+    end
+end
+
+-- Main loop
+print("\n🚀 Starting hatcher...\n")
+
+local currentIndex = 1
+local totalHatches = 0
+local failStreak = 0
+
+task.spawn(function()
+    while task.wait(CONFIG.WAIT_TIME) do
+        -- Safety check
+        if not player or not player.Character then
+            warn("⚠️ Player disconnected")
+            break
+        end
+        
+        -- Get current egg
+        local currentEgg = CONFIG.EGGS[currentIndex]
+        
+        -- Try to hatch
+        local success = hatchEgg(currentEgg, CONFIG.HATCH_AMOUNT)
+        
+        if success then
+            totalHatches = totalHatches + 1
+            failStreak = 0
+            print(string.format("📊 Total Successful Hatches: %d\n", totalHatches))
+            
+            -- Move to next egg after success
+            currentIndex = currentIndex % #CONFIG.EGGS + 1
+        else
+            failStreak = failStreak + 1
+            warn(string.format("❌ Fail streak: %d/3\n", failStreak))
+            
+            -- After 3 fails, try next egg
+            if failStreak >= 3 then
+                print("[CYCLE] Trying next egg...")
+                currentIndex = currentIndex % #CONFIG.EGGS + 1
+                failStreak = 0
+                task.wait(2) -- Extra wait when cycling
+            end
+        end
+    end
+end)
+
+print("✅ Script loaded! Hatcher is running...")
+print("="..string.rep("=", 60))
