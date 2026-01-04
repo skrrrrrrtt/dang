@@ -1,0 +1,85 @@
+-- =====================================
+-- BOT ONLINE HEARTBEAT WEBHOOK
+-- =====================================
+
+local Players = game:GetService("Players")
+local HttpService = game:GetService("HttpService")
+local LocalPlayer = Players.LocalPlayer
+
+-- =========================
+-- BOT NAME → WEBHOOK URL
+-- =========================
+local WEBHOOKS = {
+    ["w6d0rm"]      = "https://discord.com/api/webhooks/1457327069187936317/9HSKU4iol9zaNTeux1IP6V3DJjPGVVySPdJm_yqSeZLjBdA2HQJVif5hP2KXbBOSDHLZ",
+    ["jansggm"]     = "https://discord.com/api/webhooks/1457326700647157915/Kc8Ye1kGljR8_SQZt5WL_Ilcj6VZ-QdBq09atWuiYm_FDbuAcAHdOplpG06d9v1cKNOj",
+    ["wadfish1"]    = "https://discord.com/api/webhooks/1457327173739347982/ndIqvPWZtU5b2rz8XNsVZDDUEetjxYRSIeUA33Kq7swx2g7woB49gXnlT5szATmTELyL",
+    ["loanenjoyer"] = "https://discord.com/api/webhooks/1457327220405178542/gbUia_ja3TPmjk9gW8Wx0-ClSpoLG-NW2X8ef023iOaNBsH8tRNqWBP_bhqkiIKN-BnD",
+}
+
+-- =========================
+-- SETTINGS
+-- =========================
+local HEARTBEAT_INTERVAL = 300 -- seconds (5 minutes)
+local COLOR_ONLINE = 0x00ff00
+
+-- =========================
+-- GET WEBHOOK
+-- =========================
+local function getWebhook()
+    return WEBHOOKS[LocalPlayer.Name]
+end
+
+-- =========================
+-- SEND HEARTBEAT
+-- =========================
+local function sendHeartbeat()
+    local webhook = getWebhook()
+    if not webhook then
+        warn("[HEARTBEAT] No webhook for", LocalPlayer.Name)
+        return
+    end
+
+    local payload = {
+        username = "PS99 Bot Monitor",
+        embeds = {{
+            title = "🟢 Bot Online",
+            description = "**" .. LocalPlayer.Name .. "** is still online and running.",
+            color = COLOR_ONLINE,
+            fields = {
+                {
+                    name = "UserId",
+                    value = tostring(LocalPlayer.UserId),
+                    inline = true
+                },
+                {
+                    name = "Game",
+                    value = game.Name,
+                    inline = true
+                }
+            },
+            footer = {
+                text = "Heartbeat Monitor"
+            },
+            timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
+        }}
+    }
+
+    request({
+        Url = webhook,
+        Method = "POST",
+        Headers = {
+            ["Content-Type"] = "application/json"
+        },
+        Body = HttpService:JSONEncode(payload)
+    })
+end
+
+-- =========================
+-- HEARTBEAT LOOP
+-- =========================
+task.spawn(function()
+    while true do
+        sendHeartbeat()
+        task.wait(HEARTBEAT_INTERVAL)
+    end
+end)
