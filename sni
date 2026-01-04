@@ -1,0 +1,650 @@
+--[[
+    ╔══════════════════════════════════════════════════════════════╗
+    ║                                                              ║
+    ║         PS99 HUGE PET SNIPER PRO V4.0 - PREMIUM             ║
+    ║                                                              ║
+    ║  Strategy: Buy ANY Huge Pet Under 11M (No RAP Checking)    ║
+    ║  Features: Ultra-Fast Scanning • Smart Filtering • Webhook  ║
+    ║           Session Analytics • Anti-Detection • Auto-Rescan  ║
+    ║                                                              ║
+    ╚══════════════════════════════════════════════════════════════╝
+]]--
+
+repeat task.wait() until game:IsLoaded()
+repeat task.wait() until game.Players.LocalPlayer
+
+-- ═══════════════════════════════════════════════════════════════
+-- 🔒 ANTI-DOUBLE LOAD
+-- ═══════════════════════════════════════════════════════════════
+if _G.HUGE_SNIPER_LOADED then
+    return warn("⚠️ Huge Sniper already running!")
+end
+_G.HUGE_SNIPER_LOADED = true
+
+-- ═══════════════════════════════════════════════════════════════
+-- 📦 SERVICES
+-- ═══════════════════════════════════════════════════════════════
+local Players = game:GetService("Players")
+local HttpService = game:GetService("HttpService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+local VirtualUser = game:GetService("VirtualUser")
+local StarterGui = game:GetService("StarterGui")
+
+local plr = Players.LocalPlayer
+local Network = ReplicatedStorage:WaitForChild("Network")
+
+-- ═══════════════════════════════════════════════════════════════
+-- ⚙️ CONFIGURATION
+-- ═══════════════════════════════════════════════════════════════
+local CONFIG = {
+    -- ═══ MAIN SETTINGS ═══
+    Enabled = true,
+    MaxPrice = 22000000,  -- 11M gems - won't buy anything over this
+    
+    -- ═══ TARGET SETTINGS ═══
+    OnlyHuge = true,  -- ONLY buy pets with "Huge" in name
+    IgnoreTitanic = false,  -- Set to true if you don't want Titanics
+    
+    -- ═══ WEBHOOK ═══
+    WebhookURL = "https://discord.com/api/webhooks/1440202664389640242/RR2NiQ4WqbtRy4zH9YmmQcdW4YgPCqz22HCBnW-XVd0nNvH1WklGYX_eDjoyQyF8ruoU",  -- Add your webhook here
+    NotifyOnPurchase = true,
+    NotifyOnStart = true,
+    NotifySessionStats = true,
+    StatsInterval = 600,  -- Send stats every 10 minutes
+    
+    -- ═══ BLACKLIST ═══
+    BlacklistSellers = {
+        -- Add seller names here to ignore them
+        -- Example: "ScammerName123",
+    },
+    
+    BlacklistPets = {
+        -- Add specific huge pets to ignore
+        -- Example: "Huge Cat",  -- Too common/cheap
+    },
+    
+    -- ═══ PERFORMANCE ═══
+    ScanInterval = 0.25,  -- Very fast scanning (4 scans per second)
+    MaxBoothsPerScan = 100,  -- Scan up to 100 booths at once
+    
+    -- ═══ AUTO FEATURES ═══
+    AutoEquipBestPets = false,
+    SmartGemReserve = true,  -- Keep 500K gems reserved
+    ReserveAmount = 500000,
+}
+
+-- ═══════════════════════════════════════════════════════════════
+-- 📊 SESSION TRACKING
+-- ═══════════════════════════════════════════════════════════════
+local Session = {
+    StartTime = os.time(),
+    StartGems = 0,
+    CurrentGems = 0,
+    
+    -- Stats
+    TotalScans = 0,
+    BoothsScanned = 0,
+    HugesSeen = 0,
+    HugesBought = 0,
+    TotalSpent = 0,
+    FailedPurchases = 0,
+    
+    -- Best Purchase
+    MostExpensive = {price = 0, name = "None"},
+    CheapestHuge = {price = 999999999, name = "None"},
+    
+    -- Purchase History
+    PurchaseHistory = {},
+    PetsBought = {},
+}
+
+-- ═══════════════════════════════════════════════════════════════
+-- 🎨 UTILITIES
+-- ═══════════════════════════════════════════════════════════════
+local function formatNumber(num)
+    if num >= 1000000000 then
+        return string.format("%.2fB", num / 1000000000)
+    elseif num >= 1000000 then
+        return string.format("%.2fM", num / 1000000)
+    elseif num >= 1000 then
+        return string.format("%.2fK", num / 1000)
+    else
+        return tostring(math.floor(num))
+    end
+end
+
+local function formatTime(seconds)
+    local hours = math.floor(seconds / 3600)
+    local minutes = math.floor((seconds % 3600) / 60)
+    local secs = seconds % 60
+    
+    if hours > 0 then
+        return string.format("%dh %dm", hours, minutes)
+    elseif minutes > 0 then
+        return string.format("%dm %ds", minutes, secs)
+    else
+        return string.format("%ds", secs)
+    end
+end
+
+local function log(type, msg)
+    local icons = {
+        INFO = "ℹ️",
+        SUCCESS = "✅",
+        WARNING = "⚠️",
+        ERROR = "❌",
+        SNIPE = "🎯",
+        HUGE = "🌟"
+    }
+    
+    local text = string.format("[%s] %s", icons[type] or "•", msg)
+    
+    if type == "ERROR" then
+        warn(text)
+    else
+        print(text)
+    end
+end
+
+local function notify(title, text, duration)
+    pcall(function()
+        StarterGui:SetCore("SendNotification", {
+            Title = title,
+            Text = text,
+            Duration = duration or 5,
+            Icon = "rbxassetid://7733993369"
+        })
+    end)
+end
+
+-- ═══════════════════════════════════════════════════════════════
+-- 💎 GEM FUNCTIONS
+-- ═══════════════════════════════════════════════════════════════
+local function getSave()
+    local ok, data = pcall(function()
+        return require(ReplicatedStorage.Library.Client.Save).Get()
+    end)
+    return ok and data or nil
+end
+
+local function getGems()
+    local save = getSave()
+    if not save or not save.Inventory or not save.Inventory.Currency then 
+        return 0 
+    end
+    
+    for _, currency in pairs(save.Inventory.Currency) do
+        if currency.id == "Diamonds" then
+            return currency._am or 0
+        end
+    end
+    return 0
+end
+
+local function updateGems()
+    Session.CurrentGems = getGems()
+end
+
+-- ═══════════════════════════════════════════════════════════════
+-- 🔔 WEBHOOK SYSTEM
+-- ═══════════════════════════════════════════════════════════════
+local lastWebhookTime = 0
+
+local function sendWebhook(payload)
+    if CONFIG.WebhookURL == "" then return end
+    
+    -- Rate limit: 1 per 2 seconds
+    local now = os.time()
+    if now - lastWebhookTime < 2 then
+        return
+    end
+    lastWebhookTime = now
+    
+    task.spawn(function()
+        pcall(function()
+            request({
+                Url = CONFIG.WebhookURL,
+                Method = "POST",
+                Headers = {["Content-Type"] = "application/json"},
+                Body = HttpService:JSONEncode(payload)
+            })
+        end)
+    end)
+end
+
+local function webhookPurchase(petName, price, amount, seller)
+    if not CONFIG.NotifyOnPurchase then return end
+    
+    local payload = {
+        embeds = {{
+            title = "🎯 Huge Pet Sniper - NEW PURCHASE!",
+            description = string.format(
+                "**Pet:** %s (x%d)\n**Paid:** %s (%s Each)\n**Seller:** %s",
+                petName,
+                amount,
+                formatNumber(price),
+                formatNumber(price / amount),
+                seller
+            ),
+            color = price >= 10000000 and 0xFF0000 or (price >= 5000000 and 0xFFD700 or 0x00FF00),
+            fields = {
+                {
+                    name = "💎 Gems After",
+                    value = formatNumber(Session.CurrentGems),
+                    inline = true
+                },
+                {
+                    name = "📊 Session Huges",
+                    value = tostring(Session.HugesBought),
+                    inline = true
+                },
+                {
+                    name = "💰 Total Spent",
+                    value = formatNumber(Session.TotalSpent),
+                    inline = true
+                },
+                {
+                    name = "⏱️ Runtime",
+                    value = formatTime(os.time() - Session.StartTime),
+                    inline = true
+                },
+                {
+                    name = "🏆 Best Deal",
+                    value = Session.CheapestHuge.name .. " - " .. formatNumber(Session.CheapestHuge.price),
+                    inline = false
+                }
+            },
+            footer = {text = "PS99 Huge Pet Sniper Pro"},
+            timestamp = os.date("!%Y-%m-%dT%H:%M:%S"),
+            thumbnail = {url = "https://tr.rbxcdn.com/180DAY-e098d5e7dfe08a67c8d8bb8e808f9be4/150/150/Image/Webp/noFilter"}
+        }}
+    }
+    
+    sendWebhook(payload)
+end
+
+local function webhookStartup()
+    if not CONFIG.NotifyOnStart then return end
+    
+    local payload = {
+        embeds = {{
+            title = "🚀 Huge Pet Sniper Started",
+            description = string.format(
+                "**Player:** %s\n**Server:** `%s`\n**Strategy:** Buy ANY Huge ≤ %s",
+                plr.Name,
+                game.JobId:sub(1, 12),
+                formatNumber(CONFIG.MaxPrice)
+            ),
+            color = 0x00FF00,
+            fields = {
+                {
+                    name = "💎 Starting Gems",
+                    value = formatNumber(Session.StartGems),
+                    inline = true
+                },
+                {
+                    name = "⚡ Scan Speed",
+                    value = CONFIG.ScanInterval .. "s",
+                    inline = true
+                }
+            },
+            footer = {text = "PS99 Huge Pet Sniper Pro"},
+            timestamp = os.date("!%Y-%m-%dT%H:%M:%S")
+        }}
+    }
+    
+    sendWebhook(payload)
+end
+
+local function webhookStats()
+    if not CONFIG.NotifySessionStats then return end
+    
+    local runtime = os.time() - Session.StartTime
+    local hugesPerHour = runtime > 0 and (Session.HugesBought / (runtime / 3600)) or 0
+    
+    local payload = {
+        embeds = {{
+            title = "📊 Session Statistics",
+            description = string.format("Runtime: %s", formatTime(runtime)),
+            color = 0x00CED1,
+            fields = {
+                {
+                    name = "🔍 Scanning",
+                    value = string.format(
+                        "**Total Scans:** %s\n**Booths:** %s\n**Huges Found:** %d",
+                        formatNumber(Session.TotalScans),
+                        formatNumber(Session.BoothsScanned),
+                        Session.HugesSeen
+                    ),
+                    inline = true
+                },
+                {
+                    name = "🌟 Purchases",
+                    value = string.format(
+                        "**Bought:** %d\n**Failed:** %d\n**Rate:** %.2f/hr",
+                        Session.HugesBought,
+                        Session.FailedPurchases,
+                        hugesPerHour
+                    ),
+                    inline = true
+                },
+                {
+                    name = "💰 Financials",
+                    value = string.format(
+                        "**Total Spent:** %s\n**Average:** %s\n**Current Gems:** %s",
+                        formatNumber(Session.TotalSpent),
+                        Session.HugesBought > 0 and formatNumber(Session.TotalSpent / Session.HugesBought) or "N/A",
+                        formatNumber(Session.CurrentGems)
+                    ),
+                    inline = false
+                },
+                {
+                    name = "🏆 Records",
+                    value = string.format(
+                        "**Most Expensive:** %s (%s)\n**Cheapest:** %s (%s)",
+                        Session.MostExpensive.name,
+                        formatNumber(Session.MostExpensive.price),
+                        Session.CheapestHuge.name,
+                        formatNumber(Session.CheapestHuge.price)
+                    ),
+                    inline = false
+                }
+            },
+            footer = {text = "PS99 Huge Pet Sniper Pro"},
+            timestamp = os.date("!%Y-%m-%dT%H:%M:%S")
+        }}
+    }
+    
+    sendWebhook(payload)
+end
+
+-- ═══════════════════════════════════════════════════════════════
+-- 💰 PURCHASE SYSTEM
+-- ═══════════════════════════════════════════════════════════════
+local purchaseLock = false
+
+local function purchaseHuge(boothUID, listingUID, petName, price, amount, seller)
+    if purchaseLock then
+        return false
+    end
+    
+    purchaseLock = true
+    
+    log("SNIPE", string.format("Buying %s for %s...", petName, formatNumber(price)))
+    
+    local success, result = pcall(function()
+        return Network["Booths_Purchase"]:InvokeServer(boothUID, listingUID)
+    end)
+    
+    task.wait(0.3)
+    purchaseLock = false
+    
+    if success and result then
+        -- Update stats
+        Session.HugesBought = Session.HugesBought + amount
+        Session.TotalSpent = Session.TotalSpent + price
+        
+        -- Track pet
+        if not Session.PetsBought[petName] then
+            Session.PetsBought[petName] = 0
+        end
+        Session.PetsBought[petName] = Session.PetsBought[petName] + amount
+        
+        -- Add to history
+        table.insert(Session.PurchaseHistory, {
+            name = petName,
+            price = price,
+            amount = amount,
+            time = os.time()
+        })
+        
+        -- Update records
+        if price > Session.MostExpensive.price then
+            Session.MostExpensive = {price = price, name = petName}
+        end
+        
+        local pricePerPet = price / amount
+        if pricePerPet < Session.CheapestHuge.price then
+            Session.CheapestHuge = {price = pricePerPet, name = petName}
+        end
+        
+        updateGems()
+        
+        log("SUCCESS", string.format("✅ Sniped %s x%d for %s!", 
+            petName, 
+            amount, 
+            formatNumber(price)))
+        
+        notify("🌟 HUGE SNIPED!", 
+            string.format("%s - %s", petName, formatNumber(price)), 
+            5)
+        
+        webhookPurchase(petName, price, amount, seller)
+        
+        return true
+    else
+        Session.FailedPurchases = Session.FailedPurchases + 1
+        log("WARNING", string.format("Failed: %s", petName))
+        return false
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════════
+-- 🔍 BOOTH SCANNER
+-- ═══════════════════════════════════════════════════════════════
+local function scanBooth(booth)
+    if not booth:GetAttribute("OwnerUID") then return end
+    
+    local ownerUID = booth:GetAttribute("OwnerUID")
+    local sellerName = booth:GetAttribute("OwnerName") or "Unknown"
+    
+    -- Check blacklist
+    for _, blacklisted in ipairs(CONFIG.BlacklistSellers) do
+        if sellerName:lower() == blacklisted:lower() then
+            return
+        end
+    end
+    
+    -- Get booth data
+    local ok, boothData = pcall(function()
+        return Network["Booths_RequestGet"]:InvokeServer(ownerUID)
+    end)
+    
+    if not ok or not boothData or not boothData.Listings then 
+        return 
+    end
+    
+    Session.BoothsScanned = Session.BoothsScanned + 1
+    
+    -- Scan listings
+    for listingUID, listing in pairs(boothData.Listings) do
+        if not listing or not listing.DiamondCost or not listing.ItemData then
+            continue
+        end
+        
+        local price = listing.DiamondCost
+        local itemData = listing.ItemData
+        local itemName = itemData.id or "Unknown"
+        local amount = itemData._am or 1
+        
+        -- ═══ FILTER 1: Must be Huge ═══
+        if not itemName:lower():find("huge") then
+            continue
+        end
+        
+        Session.HugesSeen = Session.HugesSeen + 1
+        
+        -- ═══ FILTER 2: Check Titanic ═══
+        if CONFIG.IgnoreTitanic and itemName:lower():find("titanic") then
+            continue
+        end
+        
+        -- ═══ FILTER 3: Check Price ═══
+        if price > CONFIG.MaxPrice then
+            log("INFO", string.format("Skipped %s - Too expensive (%s)", 
+                itemName, 
+                formatNumber(price)))
+            continue
+        end
+        
+        -- ═══ FILTER 4: Check Blacklist ═══
+        local isBlacklisted = false
+        for _, blacklistedPet in ipairs(CONFIG.BlacklistPets) do
+            if itemName:lower():find(blacklistedPet:lower()) then
+                isBlacklisted = true
+                break
+            end
+        end
+        if isBlacklisted then
+            continue
+        end
+        
+        -- ═══ FILTER 5: Check Gem Reserve ═══
+        if CONFIG.SmartGemReserve then
+            if Session.CurrentGems - price < CONFIG.ReserveAmount then
+                log("WARNING", string.format("Skipped %s - Would go below reserve (%s needed)", 
+                    itemName,
+                    formatNumber(price)))
+                continue
+            end
+        end
+        
+        -- ═══ FILTER 6: Check If Enough Gems ═══
+        if Session.CurrentGems < price then
+            log("WARNING", string.format("Skipped %s - Not enough gems (Need: %s, Have: %s)", 
+                itemName, 
+                formatNumber(price), 
+                formatNumber(Session.CurrentGems)))
+            continue
+        end
+        
+        -- ═══ ALL CHECKS PASSED - BUY IT! ═══
+        log("HUGE", string.format("Found: %s x%d for %s! 🎯", 
+            itemName, 
+            amount, 
+            formatNumber(price)))
+        
+        purchaseHuge(ownerUID, listingUID, itemName, price, amount, sellerName)
+        
+        task.wait(0.5)
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════════
+-- 🔄 MAIN LOOP
+-- ═══════════════════════════════════════════════════════════════
+local function mainLoop()
+    log("INFO", "═══════════════════════════════════════════════════════")
+    log("INFO", "     PS99 HUGE PET SNIPER PRO V4.0 - PREMIUM")
+    log("INFO", "═══════════════════════════════════════════════════════")
+    log("INFO", "Strategy: Buy ANY Huge Pet ≤ " .. formatNumber(CONFIG.MaxPrice))
+    log("INFO", "Starting Gems: " .. formatNumber(Session.StartGems))
+    log("INFO", "Scan Speed: " .. CONFIG.ScanInterval .. "s per cycle")
+    log("INFO", "═══════════════════════════════════════════════════════")
+    
+    notify("🚀 Huge Sniper Started", "Scanning for huge pets...", 3)
+    webhookStartup()
+    
+    while CONFIG.Enabled and task.wait(CONFIG.ScanInterval) do
+        Session.TotalScans = Session.TotalScans + 1
+        
+        local booths = Workspace:FindFirstChild("__THINGS")
+        booths = booths and booths:FindFirstChild("__REMOTES")
+        booths = booths and booths:FindFirstChild("Booths")
+        
+        if not booths then
+            task.wait(1)
+            continue
+        end
+        
+        local boothList = booths:GetChildren()
+        
+        for i, booth in ipairs(boothList) do
+            if not CONFIG.Enabled then break end
+            if i > CONFIG.MaxBoothsPerScan then break end
+            
+            pcall(function()
+                scanBooth(booth)
+            end)
+        end
+        
+        updateGems()
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════════
+-- 📊 STATS DISPLAY
+-- ═══════════════════════════════════════════════════════════════
+local function statsLoop()
+    task.spawn(function()
+        while task.wait(CONFIG.StatsInterval) do
+            local runtime = os.time() - Session.StartTime
+            
+            log("INFO", "═══════════════ SESSION STATS ═══════════════")
+            log("INFO", string.format("Runtime: %s | Scans: %s | Booths: %s", 
+                formatTime(runtime),
+                formatNumber(Session.TotalScans),
+                formatNumber(Session.BoothsScanned)))
+            log("HUGE", string.format("Huges Seen: %d | Bought: %d | Failed: %d", 
+                Session.HugesSeen,
+                Session.HugesBought,
+                Session.FailedPurchases))
+            log("SUCCESS", string.format("Total Spent: %s | Current Gems: %s", 
+                formatNumber(Session.TotalSpent),
+                formatNumber(Session.CurrentGems)))
+            log("INFO", string.format("Best Deal: %s (%s)", 
+                Session.CheapestHuge.name,
+                formatNumber(Session.CheapestHuge.price)))
+            log("INFO", "═══════════════════════════════════════════")
+            
+            webhookStats()
+        end
+    end)
+end
+
+-- ═══════════════════════════════════════════════════════════════
+-- 🛡️ ANTI-AFK
+-- ═══════════════════════════════════════════════════════════════
+local function setupAntiAFK()
+    pcall(function()
+        plr.PlayerScripts.Scripts.Core["Idle Tracking"].Enabled = false
+    end)
+    
+    if getconnections then
+        for _, conn in pairs(getconnections(plr.Idled)) do
+            pcall(function() conn:Disable() end)
+        end
+    end
+    
+    task.spawn(function()
+        while task.wait(600) do
+            VirtualUser:Button2Down(Vector2.new(0,0), Workspace.CurrentCamera.CFrame)
+            task.wait(1)
+            VirtualUser:Button2Up(Vector2.new(0,0), Workspace.CurrentCamera.CFrame)
+        end
+    end)
+    
+    log("SUCCESS", "Anti-AFK enabled")
+end
+
+-- ═══════════════════════════════════════════════════════════════
+-- 🚀 INITIALIZATION
+-- ═══════════════════════════════════════════════════════════════
+log("INFO", "Initializing Huge Pet Sniper Pro...")
+
+Session.StartGems = getGems()
+Session.CurrentGems = Session.StartGems
+
+setupAntiAFK()
+statsLoop()
+
+if CONFIG.AutoEquipBestPets then
+    pcall(function()
+        Network["Pets_EquipBest"]:FireServer()
+        log("SUCCESS", "Auto-equipped best pets")
+    end)
+end
+
+task.wait(2)
+mainLoop()
