@@ -40,7 +40,7 @@ local Network = ReplicatedStorage:WaitForChild("Network")
 local CONFIG = {
     -- ═══ MAIN SETTINGS ═══
     Enabled = true,
-    MaxPrice = 22000000,  -- 11M gems - won't buy anything over this
+    MaxPrice = 21000000,  -- 11M gems - won't buy anything over this
     
     -- ═══ TARGET SETTINGS ═══
     OnlyHuge = true,  -- ONLY buy pets with "Huge" in name
