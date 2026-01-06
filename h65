@@ -1,0 +1,210 @@
+-- PS99 STATS HUD (PETS REMOVED, COINS & EGGS FIXED)
+
+repeat task.wait() until game:IsLoaded()
+
+local Players = game:GetService("Players")
+local CoreGui = game:GetService("CoreGui")
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local player = Players.LocalPlayer
+
+-- PS99 modules (SAFE)
+local Library = ReplicatedStorage:WaitForChild("Library")
+local MapCmds = require(Library.Client.MapCmds)
+local EggCmds = require(Library.Client.EggCmds)
+
+-- remove old gui
+pcall(function()
+    CoreGui:FindFirstChild("StatsOverlay"):Destroy()
+end)
+
+-- ================= GUI =================
+local gui = Instance.new("ScreenGui")
+gui.Name = "StatsOverlay"
+gui.IgnoreGuiInset = true
+gui.ResetOnSpawn = false
+gui.Parent = CoreGui
+
+-- BIG ASF BACKGROUND
+local bg = Instance.new("Frame")
+bg.AnchorPoint = Vector2.new(0.5,0.5)
+bg.Position = UDim2.fromScale(0.5,0.5)
+bg.Size = UDim2.fromScale(2,2)
+bg.BackgroundColor3 = Color3.new(0,0,0)
+bg.BorderSizePixel = 0
+bg.Parent = gui
+
+-- container
+local container = Instance.new("Frame")
+container.AnchorPoint = Vector2.new(0.5,0.5)
+container.Position = UDim2.fromScale(0.5,0.5)
+container.Size = UDim2.fromOffset(520,380)
+container.BackgroundTransparency = 1
+container.Parent = bg
+
+-- label helper
+local function makeLabel(y, size)
+    local t = Instance.new("TextLabel")
+    t.Position = UDim2.fromOffset(0,y)
+    t.Size = UDim2.new(1,0,0,size)
+    t.BackgroundTransparency = 1
+    t.Font = Enum.Font.GothamBold
+    t.TextSize = size - 4
+    t.TextColor3 = Color3.new(1,1,1)
+    t.TextXAlignment = Enum.TextXAlignment.Left
+    t.Parent = container
+    return t
+end
+
+-- labels
+local title = makeLabel(0,40)
+title.Text = "STATS OVERLAY"
+title.TextSize = 32
+
+local playerLbl = makeLabel(60,26)
+local zoneLbl = makeLabel(90,26)
+
+local diamondsLbl = makeLabel(140,26)
+local rateLbl = makeLabel(170,22)
+
+local coinsLbl = makeLabel(210,26)
+local eggsLbl = makeLabel(250,26)
+
+local timeLbl = makeLabel(290,28)
+
+-- close button
+local closeBtn = Instance.new("TextButton")
+closeBtn.Size = UDim2.fromOffset(150,40)
+closeBtn.Position = UDim2.fromScale(0.5,1)
+closeBtn.AnchorPoint = Vector2.new(0.5,1)
+closeBtn.Text = "CLOSE"
+closeBtn.Font = Enum.Font.GothamBold
+closeBtn.TextSize = 18
+closeBtn.BackgroundColor3 = Color3.fromRGB(220,20,60)
+closeBtn.TextColor3 = Color3.new(1,1,1)
+closeBtn.Parent = container
+Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0,8)
+
+-- open button
+local openBtn = Instance.new("TextButton")
+openBtn.Size = UDim2.fromOffset(150,40)
+openBtn.Position = UDim2.fromScale(0.5,0.9)
+openBtn.AnchorPoint = Vector2.new(0.5,0.5)
+openBtn.Text = "OPEN STATS"
+openBtn.Font = Enum.Font.GothamBold
+openBtn.TextSize = 18
+openBtn.BackgroundColor3 = Color3.fromRGB(40,40,40)
+openBtn.TextColor3 = Color3.new(1,1,1)
+openBtn.Parent = gui
+Instance.new("UICorner", openBtn).CornerRadius = UDim.new(0,8)
+
+-- visibility
+local visible = true
+local startTime = os.clock()
+
+local function setVisible(v)
+    visible = v
+    bg.Visible = v
+    openBtn.Visible = not v
+end
+
+closeBtn.MouseButton1Click:Connect(function()
+    setVisible(false)
+end)
+
+openBtn.MouseButton1Click:Connect(function()
+    setVisible(true)
+end)
+
+-- helpers
+local function fmt(n)
+    if n >= 1e9 then return string.format("%.2fB", n/1e9)
+    elseif n >= 1e6 then return string.format("%.2fM", n/1e6)
+    elseif n >= 1e3 then return string.format("%.2fK", n/1e3)
+    end
+    return tostring(math.floor(n))
+end
+
+local function fmtTime(t)
+    return string.format(
+        "%02d:%02d:%02d",
+        math.floor(t/3600),
+        math.floor(t%3600/60),
+        math.floor(t%60)
+    )
+end
+
+-- 💎 Diamonds (emoji-safe)
+local diamondsStat
+-- 🪙 Coins (emoji-safe)
+local coinsStat
+
+task.spawn(function()
+    local ls = player:WaitForChild("leaderstats")
+
+    diamondsStat =
+        ls:FindFirstChild("💎 Diamonds")
+        or ls:FindFirstChild("\240\159\146\142 Diamonds")
+
+    coinsStat =
+        ls:FindFirstChild("🪙 Coins")
+        or ls:FindFirstChild("Coins")
+        or ls:FindFirstChild("💰 Coins")
+end)
+
+-- 💎 diamonds/min
+local lastDiamonds = 0
+local lastCheck = os.clock()
+local diamondRate = 0
+
+-- 🥚 eggs hatched (FIXED)
+local eggsHatched = 0
+local function onEggHatch()
+    eggsHatched += (EggCmds.GetMaxHatch() or 1)
+end
+
+-- hook safely
+for _, fn in ipairs({"RequestPurchase","Open","Hatch"}) do
+    if EggCmds[fn] then
+        local old = EggCmds[fn]
+        EggCmds[fn] = function(...)
+            onEggHatch()
+            return old(...)
+        end
+    end
+end
+
+-- UPDATE LOOP
+RunService.RenderStepped:Connect(function()
+    if not visible then return end
+
+    playerLbl.Text = "PLAYER: "..player.Name
+
+    local zone = MapCmds.GetCurrentZone()
+    zoneLbl.Text = "ZONE: "..tostring(zone or "Unknown")
+
+    if diamondsStat then
+        local d = diamondsStat.Value
+        diamondsLbl.Text = "💎 Diamonds: "..fmt(d)
+
+        if os.clock() - lastCheck >= 5 then
+            diamondRate = (d - lastDiamonds) / ((os.clock() - lastCheck) / 60)
+            lastDiamonds = d
+            lastCheck = os.clock()
+        end
+
+        rateLbl.Text = "💎 Rate: +"..fmt(math.max(diamondRate,0)).." / min"
+    end
+
+    if coinsStat then
+        coinsLbl.Text = "🪙 Coins: "..fmt(coinsStat.Value)
+    else
+        coinsLbl.Text = "🪙 Coins: N/A"
+    end
+
+    eggsLbl.Text = "🥚 Eggs Hatched: "..eggsHatched
+    timeLbl.Text = "⏱ Time: "..fmtTime(os.clock() - startTime)
+end)
+
+print("✅ PS99 STATS HUD FULLY FIXED (NO PETS, COINS + EGGS WORK)")
