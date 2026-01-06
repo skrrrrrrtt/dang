@@ -1,0 +1,292 @@
+--[[
+    PS99 SELF MONITOR - DELTA EXECUTOR VERSION
+    Monitors YOUR stats and sends to Discord webhook
+    
+    OPTIMIZED FOR: Delta Executor
+    
+    SETUP:
+    1. Replace YOUR_DISCORD_WEBHOOK_URL_HERE with your webhook
+    2. Execute while in Pet Simulator 99
+    3. Done!
+]]
+
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+-- ========================================
+-- CONFIGURATION
+-- ========================================
+
+local WEBHOOK_URL = "https://discord.com/api/webhooks/1414550206531244133/CRQ7-hTnGaBnu-v-yAGxOQYg07hdOZ2d93xfv6-PBTsSU5g3iqoV7_mkZSzoYKdBn1F1"
+local UPDATE_INTERVAL = 300 -- 5 minutes (300 seconds)
+
+print("=================================")
+print("PS99 SELF MONITOR (DELTA)")
+print("=================================")
+
+-- ========================================
+-- DELTA HTTP REQUEST FUNCTION
+-- ========================================
+
+local function sendHttpRequest(url, method, headers, body)
+    local success, result = pcall(function()
+        -- Delta uses http_request or request
+        if http_request then
+            return http_request({
+                Url = url,
+                Method = method,
+                Headers = headers,
+                Body = body
+            })
+        elseif request then
+            return request({
+                Url = url,
+                Method = method,
+                Headers = headers,
+                Body = body
+            })
+        elseif syn and syn.request then
+            return syn.request({
+                Url = url,
+                Method = method,
+                Headers = headers,
+                Body = body
+            })
+        else
+            error("No HTTP function found!")
+        end
+    end)
+    
+    if success then
+        return result
+    else
+        warn("HTTP Request Error:", result)
+        return nil
+    end
+end
+
+-- ========================================
+-- WEBHOOK SEND FUNCTION
+-- ========================================
+
+local function sendWebhook(statsData)
+    if not WEBHOOK_URL or WEBHOOK_URL == "YOUR_DISCORD_WEBHOOK_URL_HERE" then
+        warn("❌ SET YOUR WEBHOOK URL FIRST!")
+        return false
+    end
+    
+    print("📤 Sending stats to webhook...")
+    
+    local embed = {
+        title = "📊 Your PS99 Stats",
+        description = "Stats for **" .. LocalPlayer.Name .. "**",
+        color = 3447003,
+        fields = {
+            {
+                name = "👤 Player",
+                value = LocalPlayer.Name,
+                inline = false
+            },
+            {
+                name = "🪙 Coins",
+                value = tostring(statsData.coins),
+                inline = true
+            },
+            {
+                name = "💎 Diamonds",
+                value = tostring(statsData.diamonds),
+                inline = true
+            },
+            {
+                name = "⏱️ Playtime",
+                value = statsData.playtime,
+                inline = true
+            },
+            {
+                name = "🥚 Eggs Hatched",
+                value = tostring(statsData.eggsHatched),
+                inline = true
+            },
+            {
+                name = "📋 Quest",
+                value = statsData.currentQuest,
+                inline = false
+            }
+        },
+        timestamp = DateTime.now():ToIsoDate(),
+        footer = {
+            text = "PS99 Monitor • Delta"
+        }
+    }
+    
+    local payload = {
+        embeds = {embed}
+    }
+    
+    local jsonPayload = HttpService:JSONEncode(payload)
+    
+    local response = sendHttpRequest(
+        WEBHOOK_URL,
+        "POST",
+        {
+            ["Content-Type"] = "application/json"
+        },
+        jsonPayload
+    )
+    
+    if response and response.StatusCode == 204 then
+        print("✅ Webhook sent successfully!")
+        return true
+    else
+        warn("❌ Webhook failed!")
+        if response then
+            warn("Status Code:", response.StatusCode)
+            warn("Response:", response.Body)
+        end
+        return false
+    end
+end
+
+-- ========================================
+-- GET YOUR STATS
+-- ========================================
+
+local function formatTime(seconds)
+    local hours = math.floor(seconds / 3600)
+    local mins = math.floor((seconds % 3600) / 60)
+    local secs = seconds % 60
+    return string.format("%dh %dm %ds", hours, mins, secs)
+end
+
+local function getMyStats()
+    print("\n📊 Collecting YOUR stats...")
+    
+    local stats = {
+        coins = 0,
+        diamonds = 0,
+        playtime = "0h 0m 0s",
+        eggsHatched = 0,
+        currentQuest = "No Quest"
+    }
+    
+    -- Get Coins
+    pcall(function()
+        -- Method 1: leaderstats
+        if LocalPlayer:FindFirstChild("leaderstats") then
+            if LocalPlayer.leaderstats:FindFirstChild("Coins") then
+                stats.coins = LocalPlayer.leaderstats.Coins.Value
+                print("  ✓ Coins:", stats.coins)
+            end
+            if LocalPlayer.leaderstats:FindFirstChild("Diamonds") then
+                stats.diamonds = LocalPlayer.leaderstats.Diamonds.Value
+                print("  ✓ Diamonds:", stats.diamonds)
+            end
+        end
+        
+        -- Method 2: Try PlayerGui (some games store here)
+        local PlayerGui = LocalPlayer:WaitForChild("PlayerGui", 3)
+        if PlayerGui then
+            -- Check Main GUI
+            local MainUI = PlayerGui:FindFirstChild("Main")
+            if MainUI then
+                -- Look for coin/diamond displays
+                for _, v in pairs(MainUI:GetDescendants()) do
+                    if v:IsA("TextLabel") or v:IsA("TextBox") then
+                        local text = v.Text
+                        -- Try to parse coin values
+                        if string.find(string.lower(v.Name), "coin") then
+                            local num = tonumber(string.match(text, "%d+"))
+                            if num then stats.coins = num end
+                        end
+                        if string.find(string.lower(v.Name), "diamond") then
+                            local num = tonumber(string.match(text, "%d+"))
+                            if num then stats.diamonds = num end
+                        end
+                    end
+                end
+            end
+        end
+    end)
+    
+    -- Get Playtime
+    pcall(function()
+        if LocalPlayer:FindFirstChild("Playtime") then
+            stats.playtime = formatTime(LocalPlayer.Playtime.Value)
+            print("  ✓ Playtime:", stats.playtime)
+        end
+    end)
+    
+    -- Get Eggs Hatched
+    pcall(function()
+        if LocalPlayer:FindFirstChild("Stats") then
+            if LocalPlayer.Stats:FindFirstChild("EggsHatched") then
+                stats.eggsHatched = LocalPlayer.Stats.EggsHatched.Value
+                print("  ✓ Eggs:", stats.eggsHatched)
+            end
+        end
+    end)
+    
+    -- Get Quest (if you have quest module)
+    pcall(function()
+        -- Add your quest code here if needed
+        stats.currentQuest = "No Quest Data"
+    end)
+    
+    print("✓ Stats collected!\n")
+    return stats
+end
+
+-- ========================================
+-- MAIN MONITOR LOOP
+-- ========================================
+
+local function startMonitoring()
+    print("🔄 Starting monitor loop...")
+    print("⏰ Updates every", UPDATE_INTERVAL, "seconds\n")
+    
+    while true do
+        local myStats = getMyStats()
+        sendWebhook(myStats)
+        
+        print("⏳ Next update in", UPDATE_INTERVAL, "seconds...")
+        print("=====================================\n")
+        
+        wait(UPDATE_INTERVAL)
+    end
+end
+
+-- ========================================
+-- INITIALIZE
+-- ========================================
+
+-- Wait for game to load
+if not LocalPlayer.Character then
+    LocalPlayer.CharacterAdded:Wait()
+end
+
+wait(3) -- Give time for game data to load
+
+print("\n✅ PS99 Self Monitor Ready!")
+print("👤 Monitoring:", LocalPlayer.Name)
+print("🎮 Executor: Delta")
+print("=====================================\n")
+
+-- Test webhook first
+print("🧪 Testing webhook connection...")
+local testSuccess = sendWebhook({
+    coins = 0,
+    diamonds = 0,
+    playtime = "0h 0m 0s",
+    eggsHatched = 0,
+    currentQuest = "Initializing..."
+})
+
+if testSuccess then
+    print("\n✅ Webhook working! Starting monitor...\n")
+    wait(2)
+    startMonitoring()
+else
+    warn("\n❌ Webhook test failed!")
+    warn("Check your webhook URL and try again")
+end
