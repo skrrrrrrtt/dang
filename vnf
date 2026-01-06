@@ -1,0 +1,278 @@
+--[[
+═══════════════════════════════════════════════════════════════
+    FULL-SCREEN STATS OVERLAY
+    Shows: Player Name, Diamonds, Timer
+    Updates in real-time
+═══════════════════════════════════════════════════════════════
+]]--
+
+-- ═══════════════════════════════════════════════════════════
+-- SERVICES
+-- ═══════════════════════════════════════════════════════════
+
+local Players = game:GetService("Players")
+local CoreGui = game:GetService("CoreGui")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local LocalPlayer = Players.LocalPlayer
+
+-- ═══════════════════════════════════════════════════════════
+-- GAME MODULES (SAFE LOADING)
+-- ═══════════════════════════════════════════════════════════
+
+local function safeRequire(module)
+    local success, result = pcall(require, module)
+    return success and result or nil
+end
+
+local Library = ReplicatedStorage:FindFirstChild("Library")
+local Client = Library and safeRequire(Library.Client)
+local CurrencyCmds = Client and Client.CurrencyCmds
+
+-- ═══════════════════════════════════════════════════════════
+-- HELPER FUNCTIONS
+-- ═══════════════════════════════════════════════════════════
+
+local function getDiamonds()
+    if not CurrencyCmds then return 0 end
+    
+    local success, amount = pcall(function()
+        return CurrencyCmds.Get("Diamonds")
+    end)
+    
+    return success and amount or 0
+end
+
+local function formatNumber(num)
+    if num >= 1e12 then
+        return string.format("%.2fT", num / 1e12)
+    elseif num >= 1e9 then
+        return string.format("%.2fB", num / 1e9)
+    elseif num >= 1e6 then
+        return string.format("%.2fM", num / 1e6)
+    elseif num >= 1e3 then
+        return string.format("%.2fK", num / 1e3)
+    else
+        return tostring(math.floor(num))
+    end
+end
+
+local function formatTime(seconds)
+    local hours = math.floor(seconds / 3600)
+    local minutes = math.floor((seconds % 3600) / 60)
+    local secs = math.floor(seconds % 60)
+    
+    return string.format("%02d:%02d:%02d", hours, minutes, secs)
+end
+
+-- ═══════════════════════════════════════════════════════════
+-- REMOVE OLD GUI IF EXISTS
+-- ═══════════════════════════════════════════════════════════
+
+if CoreGui:FindFirstChild("StatsOverlay") then
+    CoreGui:FindFirstChild("StatsOverlay"):Destroy()
+end
+
+-- ═══════════════════════════════════════════════════════════
+-- CREATE GUI
+-- ═══════════════════════════════════════════════════════════
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "StatsOverlay"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.Parent = CoreGui
+
+-- Black background (full screen)
+local Background = Instance.new("Frame")
+Background.Name = "Background"
+Background.Size = UDim2.new(1, 0, 1, 0)
+Background.Position = UDim2.new(0, 0, 0, 0)
+Background.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+Background.BorderSizePixel = 0
+Background.Parent = ScreenGui
+
+-- Container for stats
+local Container = Instance.new("Frame")
+Container.Name = "Container"
+Container.Size = UDim2.new(0, 400, 0, 300)
+Container.Position = UDim2.new(0.5, -200, 0.5, -150)
+Container.BackgroundTransparency = 1
+Container.Parent = Background
+
+-- Title
+local Title = Instance.new("TextLabel")
+Title.Name = "Title"
+Title.Size = UDim2.new(1, 0, 0, 50)
+Title.Position = UDim2.new(0, 0, 0, 0)
+Title.BackgroundTransparency = 1
+Title.Font = Enum.Font.GothamBold
+Title.Text = "STATS OVERLAY"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextSize = 32
+Title.TextStrokeTransparency = 0.5
+Title.Parent = Container
+
+-- Player Name Label
+local PlayerNameLabel = Instance.new("TextLabel")
+PlayerNameLabel.Name = "PlayerNameLabel"
+PlayerNameLabel.Size = UDim2.new(1, 0, 0, 40)
+PlayerNameLabel.Position = UDim2.new(0, 0, 0, 80)
+PlayerNameLabel.BackgroundTransparency = 1
+PlayerNameLabel.Font = Enum.Font.Gotham
+PlayerNameLabel.Text = "Player:"
+PlayerNameLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+PlayerNameLabel.TextSize = 20
+PlayerNameLabel.TextXAlignment = Enum.TextXAlignment.Left
+PlayerNameLabel.Parent = Container
+
+local PlayerNameValue = Instance.new("TextLabel")
+PlayerNameValue.Name = "PlayerNameValue"
+PlayerNameValue.Size = UDim2.new(1, 0, 0, 40)
+PlayerNameValue.Position = UDim2.new(0, 0, 0, 110)
+PlayerNameValue.BackgroundTransparency = 1
+PlayerNameValue.Font = Enum.Font.GothamBold
+PlayerNameValue.Text = LocalPlayer.Name
+PlayerNameValue.TextColor3 = Color3.fromRGB(0, 255, 127)
+PlayerNameValue.TextSize = 24
+PlayerNameValue.TextStrokeTransparency = 0.5
+PlayerNameValue.Parent = Container
+
+-- Diamonds Label
+local DiamondsLabel = Instance.new("TextLabel")
+DiamondsLabel.Name = "DiamondsLabel"
+DiamondsLabel.Size = UDim2.new(1, 0, 0, 40)
+DiamondsLabel.Position = UDim2.new(0, 0, 0, 160)
+DiamondsLabel.BackgroundTransparency = 1
+DiamondsLabel.Font = Enum.Font.Gotham
+DiamondsLabel.Text = "Diamonds:"
+DiamondsLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+DiamondsLabel.TextSize = 20
+DiamondsLabel.TextXAlignment = Enum.TextXAlignment.Left
+DiamondsLabel.Parent = Container
+
+local DiamondsValue = Instance.new("TextLabel")
+DiamondsValue.Name = "DiamondsValue"
+DiamondsValue.Size = UDim2.new(1, 0, 0, 40)
+DiamondsValue.Position = UDim2.new(0, 0, 0, 190)
+DiamondsValue.BackgroundTransparency = 1
+DiamondsValue.Font = Enum.Font.GothamBold
+DiamondsValue.Text = "0"
+DiamondsValue.TextColor3 = Color3.fromRGB(0, 191, 255)
+DiamondsValue.TextSize = 24
+DiamondsValue.TextStrokeTransparency = 0.5
+DiamondsValue.Parent = Container
+
+-- Timer Label
+local TimerLabel = Instance.new("TextLabel")
+TimerLabel.Name = "TimerLabel"
+TimerLabel.Size = UDim2.new(1, 0, 0, 40)
+TimerLabel.Position = UDim2.new(0, 0, 0, 240)
+TimerLabel.BackgroundTransparency = 1
+TimerLabel.Font = Enum.Font.Gotham
+TimerLabel.Text = "Time:"
+TimerLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+TimerLabel.TextSize = 20
+TimerLabel.TextXAlignment = Enum.TextXAlignment.Left
+TimerLabel.Parent = Container
+
+local TimerValue = Instance.new("TextLabel")
+TimerValue.Name = "TimerValue"
+TimerValue.Size = UDim2.new(1, 0, 0, 40)
+TimerValue.Position = UDim2.new(0, 0, 0, 270)
+TimerValue.BackgroundTransparency = 1
+TimerValue.Font = Enum.Font.GothamBold
+TimerValue.Text = "00:00:00"
+TimerValue.TextColor3 = Color3.fromRGB(255, 215, 0)
+TimerValue.TextSize = 28
+TimerValue.TextStrokeTransparency = 0.5
+TimerValue.Parent = Container
+
+-- Close button (optional)
+local CloseButton = Instance.new("TextButton")
+CloseButton.Name = "CloseButton"
+CloseButton.Size = UDim2.new(0, 120, 0, 40)
+CloseButton.Position = UDim2.new(0.5, -60, 1, -60)
+CloseButton.BackgroundColor3 = Color3.fromRGB(220, 20, 60)
+CloseButton.BorderSizePixel = 0
+CloseButton.Font = Enum.Font.GothamBold
+CloseButton.Text = "CLOSE"
+CloseButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+CloseButton.TextSize = 18
+CloseButton.Parent = Container
+
+-- Rounded corners for close button
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 8)
+UICorner.Parent = CloseButton
+
+-- ═══════════════════════════════════════════════════════════
+-- UPDATE LOGIC
+-- ═══════════════════════════════════════════════════════════
+
+local startTime = tick()
+local running = true
+
+-- Close button functionality
+CloseButton.MouseButton1Click:Connect(function()
+    running = false
+    ScreenGui:Destroy()
+end)
+
+-- Update loop
+task.spawn(function()
+    while running and ScreenGui.Parent do
+        -- Update diamonds
+        local diamonds = getDiamonds()
+        DiamondsValue.Text = formatNumber(diamonds)
+        
+        -- Update timer
+        local elapsed = tick() - startTime
+        TimerValue.Text = formatTime(elapsed)
+        
+        task.wait(0.5) -- Update twice per second
+    end
+end)
+
+-- ═══════════════════════════════════════════════════════════
+-- CONSOLE OUTPUT
+-- ═══════════════════════════════════════════════════════════
+
+print("╔═══════════════════════════════════════╗")
+print("║  STATS OVERLAY LOADED                 ║")
+print("╚═══════════════════════════════════════╝")
+print("")
+print("✓ Full-screen black overlay created")
+print("✓ Real-time stats updating")
+print("✓ Click 'CLOSE' button to remove")
+print("")
+
+-- Store in global for manual control
+getgenv().statsOverlay = {
+    gui = ScreenGui,
+    close = function()
+        running = false
+        if ScreenGui and ScreenGui.Parent then
+            ScreenGui:Destroy()
+        end
+        print("Stats overlay closed")
+    end,
+    show = function()
+        if ScreenGui and ScreenGui.Parent then
+            Background.Visible = true
+        end
+    end,
+    hide = function()
+        if ScreenGui and ScreenGui.Parent then
+            Background.Visible = false
+        end
+    end
+}
+
+print("Commands:")
+print("  getgenv().statsOverlay.close() - Close overlay")
+print("  getgenv().statsOverlay.hide()  - Hide temporarily")
+print("  getgenv().statsOverlay.show()  - Show again")
+print("")
+
+return getgenv().statsOverlay
