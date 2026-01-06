@@ -1,0 +1,864 @@
+--[[
+═══════════════════════════════════════════════════════════════
+    ADVANCED QUEST AUTO-COMPLETER V2.1 [FIXED]
+    Made for Pet Simulator 99 - ZapHub Integration
+    
+    ✅ Fixed module loading errors
+    ✅ Enhanced error handling
+    ✅ Better compatibility
+═══════════════════════════════════════════════════════════════
+]]--
+
+local VERSION = "2.1.0"
+local DEBUG_MODE = false
+
+-- ═══════════════════════════════════════════════════════════
+-- SAFE INITIALIZATION WITH ERROR HANDLING
+-- ═══════════════════════════════════════════════════════════
+
+local function safeRequire(module, name)
+    local success, result = pcall(function()
+        return require(module)
+    end)
+    
+    if success then
+        return result
+    else
+        warn("[Quest Auto] Failed to load " .. (name or "module") .. ": " .. tostring(result))
+        return nil
+    end
+end
+
+-- ═══════════════════════════════════════════════════════════
+-- INITIALIZATION & SETUP
+-- ═══════════════════════════════════════════════════════════
+
+local startTime = tick()
+
+-- Global flags
+getgenv().questAutomation = getgenv().questAutomation or {}
+local settings = getgenv().questAutomation
+settings.enabled = true
+settings.currentQuest = nil
+settings.questQueue = {}
+settings.completedQuests = {}
+settings.failedQuests = {}
+settings.statistics = {
+    totalCompleted = 0,
+    totalFailed = 0,
+    totalAttempts = 0,
+    uptime = 0,
+    lastQuestTime = 0
+}
+
+-- Custom logging system
+local function log(level, ...)
+    local prefix = "[Quest Auto]"
+    local levelColors = {
+        ["INFO"] = "📘",
+        ["SUCCESS"] = "✅",
+        ["WARNING"] = "⚠️",
+        ["ERROR"] = "❌",
+        ["DEBUG"] = "🔍"
+    }
+    
+    local icon = levelColors[level] or "📝"
+    local message = table.concat({...}, " ")
+    
+    if level == "DEBUG" and not DEBUG_MODE then
+        return
+    end
+    
+    print(string.format("%s %s [%s] %s", prefix, icon, level, message))
+end
+
+log("INFO", "Initializing Advanced Quest Auto-Completer V" .. VERSION)
+
+-- Service references (with cloneref protection)
+local cloneref = cloneref or function(obj) return obj end
+
+local function safeGetService(serviceName)
+    local success, service = pcall(function()
+        return cloneref(game:GetService(serviceName))
+    end)
+    return success and service or game:GetService(serviceName)
+end
+
+local Workspace = safeGetService("Workspace")
+local Players = safeGetService("Players")
+local ReplicatedStorage = safeGetService("ReplicatedStorage")
+local RunService = safeGetService("RunService")
+local VirtualInputManager = safeGetService("VirtualInputManager")
+
+-- Wait for player to load
+local LocalPlayer = Players.LocalPlayer
+repeat task.wait() until LocalPlayer.Character
+local Character = LocalPlayer.Character
+local HumanoidRootPart = Character:WaitForChild("HumanoidRootPart")
+
+log("INFO", "Player loaded: " .. LocalPlayer.Name)
+
+-- Game-specific references with error handling
+local Things = Workspace:FindFirstChild("__THINGS")
+if not Things then
+    error("[Quest Auto] Game not fully loaded! Please wait and try again.")
+end
+
+local Instances = Things:FindFirstChild("Instances")
+local instanceContainer = Things:FindFirstChild("__INSTANCE_CONTAINER")
+local Breakables = Things:FindFirstChild("Breakables")
+local Lootbags = Things:FindFirstChild("Lootbags")
+local Orbs = Things:FindFirstChild("Orbs")
+
+-- Load game libraries safely
+local Library = ReplicatedStorage:FindFirstChild("Library")
+if not Library then
+    error("[Quest Auto] Library not found! Make sure you're in Pet Simulator 99.")
+end
+
+log("INFO", "Loading game modules...")
+
+local Client = safeRequire(Library.Client, "Client")
+if not Client then
+    error("[Quest Auto] Failed to load Client module!")
+end
+
+local Network = Client.Network
+local QuestCmds = Client.QuestCmds
+local CurrencyCmds = Client.CurrencyCmds
+local EggCmds = Client.EggCmds
+local ZoneCmds = Client.ZoneCmds
+local BreakableCmds = Client.BreakableCmds
+local MapCmds = Client.MapCmds
+local WorldCmds = Client.WorldCmds
+
+log("SUCCESS", "All modules loaded successfully!")
+
+-- ═══════════════════════════════════════════════════════════
+-- UTILITY FUNCTIONS
+-- ═══════════════════════════════════════════════════════════
+
+local function safeWait(duration)
+    local start = tick()
+    while tick() - start < duration and settings.enabled do
+        task.wait()
+    end
+end
+
+local function Fire(name, ...)
+    local success, result = pcall(function()
+        return Network.Fire(name, ...)
+    end)
+    if not success then
+        log("ERROR", "Fire failed: " .. tostring(result))
+    end
+    return success
+end
+
+local function Invoke(name, ...)
+    local success, result = pcall(function()
+        return Network.Invoke(name, ...)
+    end)
+    if not success then
+        log("ERROR", "Invoke failed: " .. tostring(result))
+    end
+    return success and result or nil
+end
+
+local function goTo(coord)
+    if not settings.enabled then return end
+    
+    local success = pcall(function()
+        if typeof(coord) == "CFrame" then
+            Character:PivotTo(coord)
+        elseif typeof(coord) == "Vector3" then
+            Character:PivotTo(CFrame.new(coord))
+        end
+    end)
+    
+    if success then
+        safeWait(0.15)
+    end
+end
+
+local function getPlayerSave()
+    local success, save = pcall(function()
+        return Client.Save.GetSaves()[LocalPlayer]
+    end)
+    return success and save or nil
+end
+
+local function getQuests()
+    local playerSave = getPlayerSave()
+    if playerSave and playerSave.Goals then
+        return playerSave.Goals
+    end
+    return {}
+end
+
+local function getQuestByUID(uid)
+    for _, quest in pairs(getQuests()) do
+        if quest.Goal and quest.Goal.UID == uid then
+            return quest
+        end
+    end
+    return nil
+end
+
+local function getMaxZone()
+    local success, zones = pcall(function()
+        return WorldCmds.GetUnlockedZones()
+    end)
+    
+    if not success or not zones or #zones == 0 then
+        return "Spawn"
+    end
+    
+    local maxZone = zones[1]
+    for _, zone in ipairs(zones) do
+        if zone.ZoneNumber > maxZone.ZoneNumber then
+            maxZone = zone
+        end
+    end
+    return maxZone.Name
+end
+
+local function getMaxPetsEquipped()
+    local playerSave = getPlayerSave()
+    return playerSave and playerSave.MaxPetsEquipped or 8
+end
+
+local function getPets()
+    local playerSave = getPlayerSave()
+    return playerSave and playerSave.Inventory and playerSave.Inventory.Pet or {}
+end
+
+local function getEquippedPets()
+    local pets = {}
+    for uid, pet in pairs(getPets()) do
+        if pet.e then
+            table.insert(pets, uid)
+        end
+    end
+    return pets
+end
+
+-- ═══════════════════════════════════════════════════════════
+-- QUEST DETECTION & PARSING
+-- ═══════════════════════════════════════════════════════════
+
+local questTypeHandlers = {
+    ["BEST_RAINBOW_PET"] = {
+        name = "Make Rainbow Pets from Best Egg",
+        priority = 10,
+        canComplete = true
+    },
+    ["BEST_GOLD_PET"] = {
+        name = "Make Golden Pets from Best Egg",
+        priority = 9,
+        canComplete = true
+    },
+    ["HATCH_BEST_EGG"] = {
+        name = "Hatch Best Egg",
+        priority = 8,
+        canComplete = true
+    },
+    ["BREAK_BREAKABLES"] = {
+        name = "Break Breakables",
+        priority = 7,
+        canComplete = true
+    },
+    ["COIN_JAR"] = {
+        name = "Collect Coin Jars",
+        priority = 6,
+        canComplete = true
+    },
+    ["COMET"] = {
+        name = "Collect Comets",
+        priority = 6,
+        canComplete = true
+    },
+    ["HATCH_RARE_PET"] = {
+        name = "Hatch Rare Pet",
+        priority = 5,
+        canComplete = true
+    }
+}
+
+local function parseQuestDetails(quest)
+    if not quest or not quest.Goal then
+        return nil
+    end
+    
+    local details = {
+        uid = quest.Goal.UID,
+        title = quest.Title or "Unknown Quest",
+        type = quest.TypeAsString or "UNKNOWN",
+        stars = quest.Goal.Stars or 0,
+        progress = quest.Goal.Progress or 0,
+        amount = quest.Goal.Amount or 1,
+        percentage = 0,
+        isCompleted = false,
+        canAutoComplete = false,
+        priority = 0,
+        handler = nil
+    }
+    
+    -- Calculate percentage
+    if details.amount > 0 then
+        details.percentage = math.floor((details.progress / details.amount) * 100)
+    end
+    
+    details.isCompleted = details.progress >= details.amount
+    
+    -- Check if we can auto-complete this quest type
+    local handler = questTypeHandlers[details.type]
+    if handler then
+        details.canAutoComplete = handler.canComplete
+        details.priority = handler.priority
+        details.handler = handler
+    end
+    
+    return details
+end
+
+-- ═══════════════════════════════════════════════════════════
+-- QUEST COMPLETION HANDLERS
+-- ═══════════════════════════════════════════════════════════
+
+local function equipBestPets()
+    log("INFO", "Equipping best pets...")
+    
+    local pets = getPets()
+    local petArray = {}
+    
+    for uid, pet in pairs(pets) do
+        table.insert(petArray, {
+            uid = uid,
+            power = pet.pt or 0
+        })
+    end
+    
+    table.sort(petArray, function(a, b)
+        return a.power > b.power
+    end)
+    
+    local toEquip = {}
+    local maxEquip = getMaxPetsEquipped()
+    
+    for i = 1, math.min(maxEquip, #petArray) do
+        table.insert(toEquip, petArray[i].uid)
+    end
+    
+    if #toEquip > 0 then
+        Invoke("Pets_Equip", toEquip)
+        safeWait(0.5)
+    end
+end
+
+local function getBestEgg()
+    local success, eggs = pcall(function()
+        return ReplicatedStorage.__DIRECTORY.Eggs["Zone Eggs"]:GetChildren()
+    end)
+    
+    if not success or not eggs then
+        return "Egg 1"
+    end
+    
+    local bestEgg = nil
+    local highestZone = 0
+    
+    for _, egg in ipairs(eggs) do
+        local eggData = safeRequire(egg, egg.Name)
+        if eggData and eggData.currency == "Diamonds" then
+            local zoneNum = tonumber(egg.Name:match("%d+")) or 0
+            if zoneNum > highestZone then
+                highestZone = zoneNum
+                bestEgg = egg.Name
+            end
+        end
+    end
+    
+    return bestEgg or "Egg 1"
+end
+
+local function hatchEggs(eggName, count)
+    log("INFO", string.format("Hatching %d eggs from %s", count, eggName))
+    
+    local hatched = 0
+    local attempts = 0
+    local maxAttempts = count * 2
+    
+    while hatched < count and attempts < maxAttempts and settings.enabled do
+        attempts = attempts + 1
+        
+        local maxHatch = EggCmds.GetMaxHatch()
+        local toHatch = math.min(maxHatch, count - hatched)
+        
+        local success = pcall(function()
+            Invoke("Eggs_RequestHatch", eggName, toHatch)
+        end)
+        
+        if success then
+            hatched = hatched + toHatch
+            log("DEBUG", string.format("Hatched %d/%d eggs", hatched, count))
+        end
+        
+        safeWait(2.5)
+    end
+    
+    return hatched >= count
+end
+
+local function makeGoldenPets(count)
+    log("INFO", string.format("Making %d golden pets", count))
+    
+    local made = 0
+    
+    while made < count and settings.enabled do
+        -- Hatch normal pets first
+        hatchEggs(getBestEgg(), 10)
+        
+        -- Try to make golden
+        local success = pcall(function()
+            local pets = getPets()
+            local normalPets = {}
+            
+            for uid, pet in pairs(pets) do
+                if not pet.g and not pet.r then
+                    table.insert(normalPets, uid)
+                    if #normalPets >= 6 then break end
+                end
+            end
+            
+            if #normalPets >= 6 then
+                Invoke("Pets_MakeGolden", normalPets)
+                made = made + 1
+                log("DEBUG", string.format("Made %d/%d golden pets", made, count))
+                safeWait(1)
+            end
+        end)
+        
+        if not success then
+            log("WARNING", "Failed to make golden pet, retrying...")
+        end
+        
+        safeWait(1)
+    end
+    
+    return made >= count
+end
+
+local function makeRainbowPets(count)
+    log("INFO", string.format("Making %d rainbow pets", count))
+    
+    local made = 0
+    
+    while made < count and settings.enabled do
+        -- First make golden pets
+        makeGoldenPets(6)
+        
+        -- Try to make rainbow
+        local success = pcall(function()
+            local pets = getPets()
+            local goldenPets = {}
+            
+            for uid, pet in pairs(pets) do
+                if pet.g and not pet.r then
+                    table.insert(goldenPets, uid)
+                    if #goldenPets >= 6 then break end
+                end
+            end
+            
+            if #goldenPets >= 6 then
+                Invoke("Pets_MakeRainbow", goldenPets)
+                made = made + 1
+                log("DEBUG", string.format("Made %d/%d rainbow pets", made, count))
+                safeWait(1)
+            end
+        end)
+        
+        if not success then
+            log("WARNING", "Failed to make rainbow pet, retrying...")
+        end
+        
+        safeWait(1)
+    end
+    
+    return made >= count
+end
+
+local function breakBreakables(count)
+    log("INFO", string.format("Breaking %d breakables", count))
+    
+    equipBestPets()
+    
+    local broken = 0
+    local zone = getMaxZone()
+    
+    -- Try to go to the zone
+    pcall(function()
+        local zoneTeleport = Workspace.__MAP.Teleports:FindFirstChild(zone)
+        if zoneTeleport then
+            goTo(zoneTeleport.CFrame + Vector3.new(0, 5, 0))
+        end
+    end)
+    
+    safeWait(1)
+    
+    while broken < count and settings.enabled do
+        local breakablesFound = 0
+        
+        pcall(function()
+            if not Breakables then return end
+            
+            for _, breakable in ipairs(Breakables:GetChildren()) do
+                if not settings.enabled then break end
+                
+                breakablesFound = breakablesFound + 1
+                
+                -- Send pets to breakable
+                local equippedPets = getEquippedPets()
+                for _, petUID in ipairs(equippedPets) do
+                    pcall(function()
+                        Fire("Pets: Attack Target Server", petUID, breakable)
+                    end)
+                end
+                
+                broken = broken + 1
+                
+                if broken >= count then break end
+                
+                if broken % 50 == 0 then
+                    log("DEBUG", string.format("Broken %d/%d breakables", broken, count))
+                end
+            end
+        end)
+        
+        if breakablesFound == 0 then
+            log("WARNING", "No breakables found, waiting...")
+            safeWait(2)
+        else
+            safeWait(0.1)
+        end
+    end
+    
+    return broken >= count
+end
+
+-- ═══════════════════════════════════════════════════════════
+-- MAIN QUEST HANDLER
+-- ═══════════════════════════════════════════════════════════
+
+local function completeQuest(questDetails)
+    if not questDetails or questDetails.isCompleted then
+        return false
+    end
+    
+    log("INFO", "═══════════════════════════════════════")
+    log("INFO", string.format("Quest: %s", questDetails.title))
+    log("INFO", string.format("Type: %s", questDetails.type))
+    log("INFO", string.format("Progress: %d/%d (%d%%)", 
+        questDetails.progress, questDetails.amount, questDetails.percentage))
+    log("INFO", "═══════════════════════════════════════")
+    
+    settings.currentQuest = questDetails
+    settings.statistics.totalAttempts = settings.statistics.totalAttempts + 1
+    
+    local success = false
+    local attempts = 0
+    local maxAttempts = 3
+    local remaining = questDetails.amount - questDetails.progress
+    
+    while attempts < maxAttempts and not questDetails.isCompleted and settings.enabled do
+        attempts = attempts + 1
+        log("INFO", string.format("Attempt %d/%d", attempts, maxAttempts))
+        
+        local questType = questDetails.type
+        
+        -- Execute quest handler
+        if questType == "BEST_RAINBOW_PET" then
+            success = makeRainbowPets(remaining)
+            
+        elseif questType == "BEST_GOLD_PET" then
+            success = makeGoldenPets(remaining)
+            
+        elseif questType == "HATCH_BEST_EGG" then
+            success = hatchEggs(getBestEgg(), remaining)
+            
+        elseif questType == "BREAK_BREAKABLES" then
+            success = breakBreakables(remaining)
+            
+        elseif questType == "COIN_JAR" or questType == "COMET" then
+            success = breakBreakables(remaining * 3)
+            
+        else
+            log("WARNING", "Quest type not supported: " .. questType)
+            success = false
+            break
+        end
+        
+        -- Check if quest is completed
+        safeWait(3)
+        local updatedQuest = getQuestByUID(questDetails.uid)
+        
+        if not updatedQuest then
+            log("SUCCESS", "✓ Quest completed and removed!")
+            success = true
+            break
+        else
+            questDetails = parseQuestDetails(updatedQuest)
+            if questDetails and questDetails.isCompleted then
+                log("SUCCESS", "✓ Quest progress reached 100%!")
+                success = true
+                break
+            elseif questDetails then
+                remaining = questDetails.amount - questDetails.progress
+                log("INFO", string.format("Updated progress: %d/%d", questDetails.progress, questDetails.amount))
+            end
+        end
+        
+        if not success and attempts < maxAttempts then
+            log("WARNING", "Attempt failed, retrying in 5 seconds...")
+            safeWait(5)
+        end
+    end
+    
+    if success then
+        settings.statistics.totalCompleted = settings.statistics.totalCompleted + 1
+        table.insert(settings.completedQuests, questDetails.uid)
+        log("SUCCESS", "✅ QUEST COMPLETED SUCCESSFULLY!")
+    else
+        settings.statistics.totalFailed = settings.statistics.totalFailed + 1
+        table.insert(settings.failedQuests, questDetails.uid)
+        log("ERROR", "❌ Quest failed after " .. attempts .. " attempts")
+    end
+    
+    settings.currentQuest = nil
+    return success
+end
+
+-- ═══════════════════════════════════════════════════════════
+-- QUEST QUEUE MANAGEMENT
+-- ═══════════════════════════════════════════════════════════
+
+local function buildQuestQueue()
+    log("INFO", "Building quest queue...")
+    
+    local quests = getQuests()
+    local queue = {}
+    
+    for _, quest in pairs(quests) do
+        local details = parseQuestDetails(quest)
+        
+        if details and not details.isCompleted then
+            if details.canAutoComplete then
+                table.insert(queue, details)
+            else
+                log("DEBUG", string.format("Skipping unsupported quest: %s (%s)", 
+                    details.title, details.type))
+            end
+        end
+    end
+    
+    -- Sort by priority (highest first), then by stars
+    table.sort(queue, function(a, b)
+        if a.priority == b.priority then
+            return a.stars > b.stars
+        end
+        return a.priority > b.priority
+    end)
+    
+    settings.questQueue = queue
+    
+    log("SUCCESS", string.format("Queue ready with %d completable quest(s)", #queue))
+    return queue
+end
+
+local function processQuestQueue()
+    local queue = buildQuestQueue()
+    
+    if #queue == 0 then
+        log("WARNING", "No completable quests available!")
+        return
+    end
+    
+    log("INFO", "╔═══════════════════════════════════════╗")
+    log("INFO", "║  STARTING SEQUENTIAL QUEST COMPLETION ║")
+    log("INFO", "╚═══════════════════════════════════════╝")
+    
+    for i, questDetails in ipairs(queue) do
+        if not settings.enabled then
+            log("WARNING", "Quest automation disabled!")
+            break
+        end
+        
+        log("INFO", "")
+        log("INFO", string.format("▶ [%d/%d] Starting: %s", i, #queue, questDetails.title))
+        
+        local startTime = tick()
+        local success = completeQuest(questDetails)
+        local duration = math.floor(tick() - startTime)
+        
+        if success then
+            log("SUCCESS", string.format("✓ [%d/%d] Completed in %ds", i, #queue, duration))
+        else
+            log("ERROR", string.format("✗ [%d/%d] Failed after %ds", i, #queue, duration))
+        end
+        
+        -- Wait between quests
+        if i < #queue then
+            log("INFO", "Waiting 3 seconds before next quest...")
+            safeWait(3)
+        end
+    end
+    
+    log("INFO", "")
+    log("INFO", "╔═══════════════════════════════════════╗")
+    log("SUCCESS", "║      QUEST QUEUE COMPLETE!            ║")
+    log("INFO", "╚═══════════════════════════════════════╝")
+    log("INFO", string.format("Completed: %d | Failed: %d", 
+        settings.statistics.totalCompleted, settings.statistics.totalFailed))
+end
+
+-- ═══════════════════════════════════════════════════════════
+-- AUTO COLLECTION & MAINTENANCE
+-- ═══════════════════════════════════════════════════════════
+
+task.spawn(function()
+    log("INFO", "Started auto-collection background task")
+    
+    while settings.enabled and task.wait(0.75) do
+        -- Collect lootbags
+        pcall(function()
+            if not Lootbags then return end
+            
+            local lootbags = {}
+            for _, lootbag in ipairs(Lootbags:GetChildren()) do
+                lootbags[lootbag.Name] = lootbag.Name
+                lootbag:Destroy()
+            end
+            if next(lootbags) then
+                Fire("Lootbags_Claim", lootbags)
+            end
+        end)
+        
+        -- Collect orbs
+        pcall(function()
+            if not Orbs then return end
+            
+            local orbs = {}
+            for _, orb in ipairs(Orbs:GetChildren()) do
+                table.insert(orbs, tonumber(orb.Name))
+                orb:Destroy()
+            end
+            if #orbs > 0 then
+                Fire("Orbs: Collect", orbs)
+            end
+        end)
+    end
+end)
+
+-- ═══════════════════════════════════════════════════════════
+-- ANTI-AFK & PROTECTION
+-- ═══════════════════════════════════════════════════════════
+
+pcall(function()
+    local idleTracking = LocalPlayer.PlayerScripts:FindFirstChild("Scripts", true)
+    if idleTracking then
+        idleTracking = idleTracking:FindFirstChild("Core", true)
+        if idleTracking then
+            idleTracking = idleTracking:FindFirstChild("Idle Tracking")
+            if idleTracking then
+                idleTracking.Enabled = false
+                log("SUCCESS", "Anti-AFK enabled")
+            end
+        end
+    end
+end)
+
+pcall(function()
+    if getconnections then
+        for _, connection in getconnections(LocalPlayer.Idled) do
+            if connection["Disable"] then
+                connection["Disable"](connection)
+            elseif connection["Disconnect"] then
+                connection["Disconnect"](connection)
+            end
+        end
+        log("SUCCESS", "Idle connections disabled")
+    end
+end)
+
+pcall(function()
+    local oldnamecall
+    oldnamecall = hookmetamethod(game, "__namecall", function(self, ...)
+        local method = getnamecallmethod()
+        if (self.Name == "Is Real Player" or self.Name:find("Idle")) and method:lower() == "invokeserver" then
+            return
+        end
+        return oldnamecall(self, ...)
+    end)
+    log("SUCCESS", "Anti-kick protection enabled")
+end)
+
+-- ═══════════════════════════════════════════════════════════
+-- MAIN LOOP
+-- ═══════════════════════════════════════════════════════════
+
+log("SUCCESS", "═══════════════════════════════════════")
+log("SUCCESS", string.format("Advanced Quest Auto V%s LOADED!", VERSION))
+log("INFO", string.format("Load time: %.2fs", tick() - startTime))
+log("SUCCESS", "═══════════════════════════════════════")
+
+-- Main automation loop
+task.spawn(function()
+    safeWait(2) -- Initial delay
+    
+    while settings.enabled and task.wait(5) do
+        settings.statistics.uptime = tick() - startTime
+        
+        log("INFO", "Checking for available quests...")
+        processQuestQueue()
+        
+        -- Wait before next cycle
+        log("INFO", "Cycle complete! Waiting 30 seconds before next check...")
+        safeWait(30)
+    end
+end)
+
+-- ═══════════════════════════════════════════════════════════
+-- CONTROL FUNCTIONS
+-- ═══════════════════════════════════════════════════════════
+
+getgenv().questAutomation.stop = function()
+    settings.enabled = false
+    log("WARNING", "⏹ Quest automation STOPPED!")
+end
+
+getgenv().questAutomation.start = function()
+    settings.enabled = true
+    log("SUCCESS", "▶ Quest automation STARTED!")
+end
+
+getgenv().questAutomation.status = function()
+    log("INFO", "╔═══════════════════════════════════════╗")
+    log("INFO", "║      QUEST AUTOMATION STATUS          ║")
+    log("INFO", "╠═══════════════════════════════════════╣")
+    log("INFO", string.format("║ Enabled: %-28s║", tostring(settings.enabled)))
+    log("INFO", string.format("║ Uptime: %-29s║", math.floor(settings.statistics.uptime) .. "s"))
+    log("INFO", string.format("║ Completed: %-26d║", settings.statistics.totalCompleted))
+    log("INFO", string.format("║ Failed: %-29d║", settings.statistics.totalFailed))
+    log("INFO", string.format("║ Current: %-27s║", settings.currentQuest and settings.currentQuest.title:sub(1, 25) or "None"))
+    log("INFO", "╚═══════════════════════════════════════╝")
+end
+
+log("INFO", "")
+log("INFO", "Commands:")
+log("INFO", "  • getgenv().questAutomation.stop()")
+log("INFO", "  • getgenv().questAutomation.start()")
+log("INFO", "  • getgenv().questAutomation.status()")
+log("INFO", "")
+log("SUCCESS", "✅ Ready! Quest automation will begin in 2 seconds...")
+
+return settings
