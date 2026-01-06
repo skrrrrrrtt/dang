@@ -1,0 +1,253 @@
+--[[
+    PS99 Simple Webhook Monitor
+    Monitors: Player name, Coins, Diamonds, Playtime, Egg Hatches, Rank Quests
+]]
+
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
+
+-- ========================================
+-- CONFIGURATION
+-- ========================================
+
+local WEBHOOK_URL = "https://discord.com/api/webhooks/1414550206531244133/CRQ7-hTnGaBnu-v-yAGxOQYg07hdOZ2d93xfv6-PBTsSU5g3iqoV7_mkZSzoYKdBn1F1"
+local UPDATE_INTERVAL = 300 -- Send updates every 5 minutes (in seconds)
+
+-- ========================================
+-- QUEST FUNCTIONS (from your code)
+-- ========================================
+
+local Quests = {} -- Reference to your Quests module
+local QuestCmds = {} -- Reference to your QuestCmds module
+
+local function findQuestType(qType)
+    for v, i in Quests.Goals do
+        if qType == i then
+            return tostring(v)
+        end
+    end
+end
+
+local function getGoals()
+    -- Replace with your actual getGoals implementation
+    return {} -- Should return player's current goals
+end
+
+local function getQuests()
+    local rTable = {}
+    for _, v in getGoals() do
+        table.insert(rTable, {
+            Goal = v,
+            TypeAsString = findQuestType(v.Type),
+            Title = QuestCmds.MakeTitle(v)
+        })
+    end
+    return rTable
+end
+
+local function getQuestByUID(uid)
+    for _, v in getQuests() do
+        if v.Goal.UID == uid then
+            return v.Goal
+        end
+    end
+    return nil
+end
+
+-- ========================================
+-- WEBHOOK FUNCTION
+-- ========================================
+
+local function sendWebhook(playerData)
+    if not WEBHOOK_URL or WEBHOOK_URL == "YOUR_DISCORD_WEBHOOK_URL_HERE" then
+        warn("⚠️ Webhook URL not configured!")
+        return
+    end
+    
+    -- Build quest info string
+    local questInfo = ""
+    if playerData.currentQuest then
+        questInfo = playerData.currentQuest.Title or "No Quest"
+    else
+        questInfo = "No Active Quest"
+    end
+    
+    local fields = {
+        {
+            name = "👤 Player",
+            value = playerData.playerName,
+            inline = false
+        },
+        {
+            name = "🪙 Coins",
+            value = tostring(playerData.coins),
+            inline = true
+        },
+        {
+            name = "💎 Diamonds",
+            value = tostring(playerData.diamonds),
+            inline = true
+        },
+        {
+            name = "⏱️ Playtime",
+            value = playerData.playtime,
+            inline = true
+        },
+        {
+            name = "🥚 Eggs Hatched",
+            value = tostring(playerData.eggsHatched),
+            inline = true
+        },
+        {
+            name = "📋 Current Quest",
+            value = questInfo,
+            inline = false
+        }
+    }
+    
+    local embed = {
+        title = "📊 PS99 Player Stats Update",
+        description = "Current statistics for " .. playerData.playerName,
+        color = 3447003, -- Blue color
+        fields = fields,
+        timestamp = DateTime.now():ToIsoDate(),
+        footer = {
+            text = "PS99 Monitor"
+        }
+    }
+    
+    local data = {
+        embeds = {embed}
+    }
+    
+    local success, result = pcall(function()
+        return HttpService:PostAsync(
+            WEBHOOK_URL,
+            HttpService:JSONEncode(data),
+            Enum.HttpContentType.ApplicationJson,
+            false
+        )
+    end)
+    
+    if success then
+        print("✓ Stats webhook sent for:", playerData.playerName)
+    else
+        warn("✗ Webhook failed:", result)
+    end
+end
+
+-- ========================================
+-- DATA COLLECTION
+-- ========================================
+
+local function formatPlaytime(seconds)
+    local hours = math.floor(seconds / 3600)
+    local minutes = math.floor((seconds % 3600) / 60)
+    local secs = seconds % 60
+    return string.format("%dh %dm %ds", hours, minutes, secs)
+end
+
+local function getPlayerData(player)
+    -- You'll need to adapt these to your actual data storage
+    -- This is a template showing what data to collect
+    
+    local playerData = {
+        playerName = player.Name,
+        coins = 0,
+        diamonds = 0,
+        playtime = "0h 0m 0s",
+        eggsHatched = 0,
+        currentQuest = nil
+    }
+    
+    -- Get coins (adapt to your game's data structure)
+    -- Example: playerData.coins = player.leaderstats.Coins.Value
+    if player:FindFirstChild("leaderstats") then
+        if player.leaderstats:FindFirstChild("Coins") then
+            playerData.coins = player.leaderstats.Coins.Value
+        end
+        if player.leaderstats:FindFirstChild("Diamonds") then
+            playerData.diamonds = player.leaderstats.Diamonds.Value
+        end
+    end
+    
+    -- Get playtime (adapt to your game's data structure)
+    -- Example: playerData.playtime = formatPlaytime(player.Playtime.Value)
+    if player:FindFirstChild("Playtime") then
+        playerData.playtime = formatPlaytime(player.Playtime.Value)
+    end
+    
+    -- Get eggs hatched (adapt to your game's data structure)
+    -- Example: playerData.eggsHatched = player.Stats.EggsHatched.Value
+    if player:FindFirstChild("Stats") then
+        if player.Stats:FindFirstChild("EggsHatched") then
+            playerData.eggsHatched = player.Stats.EggsHatched.Value
+        end
+    end
+    
+    -- Get current quest
+    local quests = getQuests()
+    if #quests > 0 then
+        playerData.currentQuest = quests[1] -- Get first active quest
+    end
+    
+    return playerData
+end
+
+-- ========================================
+-- MONITORING LOOP
+-- ========================================
+
+local function startMonitoring(player)
+    spawn(function()
+        while player.Parent do
+            local playerData = getPlayerData(player)
+            sendWebhook(playerData)
+            
+            wait(UPDATE_INTERVAL)
+        end
+    end)
+end
+
+-- ========================================
+-- PLAYER EVENTS
+-- ========================================
+
+-- Monitor when players join
+Players.PlayerAdded:Connect(function(player)
+    print("📊 Started monitoring:", player.Name)
+    
+    -- Send initial stats
+    wait(5) -- Wait for player data to load
+    local playerData = getPlayerData(player)
+    sendWebhook(playerData)
+    
+    -- Start periodic monitoring
+    startMonitoring(player)
+end)
+
+-- Monitor specific events for immediate updates
+
+-- Egg hatch event (adapt to your game's remote event)
+--[[
+local EggHatchEvent = ReplicatedStorage:WaitForChild("EggHatchEvent")
+EggHatchEvent.OnServerEvent:Connect(function(player)
+    local playerData = getPlayerData(player)
+    sendWebhook(playerData)
+end)
+]]
+
+-- Quest complete event (adapt to your game's remote event)
+--[[
+local QuestCompleteEvent = ReplicatedStorage:WaitForChild("QuestCompleteEvent")
+QuestCompleteEvent.OnServerEvent:Connect(function(player, questUID)
+    local quest = getQuestByUID(questUID)
+    if quest then
+        local playerData = getPlayerData(player)
+        sendWebhook(playerData)
+    end
+end)
+]]
+
+print("✓ PS99 Simple Monitor loaded!")
+print("⚙️ Update interval:", UPDATE_INTERVAL, "seconds")
