@@ -1,0 +1,214 @@
+--[[
+═══════════════════════════════════════════════════════════════
+    ADVANCED STATS OVERLAY (TOGGLEABLE)
+    • Diamonds (leaderstats / module fallback)
+    • Session timer
+    • Safe open / close (NO DESTROY)
+═══════════════════════════════════════════════════════════════
+]]--
+
+-- ═══════════════════════════════════════════════════════════
+-- SERVICES
+-- ═══════════════════════════════════════════════════════════
+
+local Players = game:GetService("Players")
+local CoreGui = game:GetService("CoreGui")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+
+local LocalPlayer = Players.LocalPlayer
+
+-- ═══════════════════════════════════════════════════════════
+-- SAFE REQUIRE
+-- ═══════════════════════════════════════════════════════════
+
+local function safeRequire(module)
+    local ok, result = pcall(require, module)
+    return ok and result or nil
+end
+
+-- Optional game currency module
+local Library = ReplicatedStorage:FindFirstChild("Library")
+local Client = Library and safeRequire(Library:FindFirstChild("Client"))
+local CurrencyCmds = Client and Client.CurrencyCmds
+
+-- ═══════════════════════════════════════════════════════════
+-- DIAMONDS (ADVANCED RESOLUTION)
+-- ═══════════════════════════════════════════════════════════
+
+local function getDiamonds()
+    -- 1️⃣ Leaderstats (MOST RELIABLE)
+    local leaderstats = LocalPlayer:FindFirstChild("leaderstats")
+    if leaderstats then
+        local diamonds = leaderstats:FindFirstChild("Diamonds")
+        if diamonds and diamonds:IsA("NumberValue") then
+            return diamonds.Value
+        end
+    end
+
+    -- 2️⃣ Custom currency module fallback
+    if CurrencyCmds then
+        local ok, value = pcall(function()
+            return CurrencyCmds.Get("Diamonds")
+        end)
+        if ok and type(value) == "number" then
+            return value
+        end
+    end
+
+    return 0
+end
+
+-- ═══════════════════════════════════════════════════════════
+-- FORMATTERS
+-- ═══════════════════════════════════════════════════════════
+
+local function formatNumber(n)
+    if n >= 1e12 then
+        return string.format("%.2fT", n / 1e12)
+    elseif n >= 1e9 then
+        return string.format("%.2fB", n / 1e9)
+    elseif n >= 1e6 then
+        return string.format("%.2fM", n / 1e6)
+    elseif n >= 1e3 then
+        return string.format("%.2fK", n / 1e3)
+    end
+    return tostring(math.floor(n))
+end
+
+local function formatTime(sec)
+    local h = math.floor(sec / 3600)
+    local m = math.floor((sec % 3600) / 60)
+    local s = math.floor(sec % 60)
+    return string.format("%02d:%02d:%02d", h, m, s)
+end
+
+-- ═══════════════════════════════════════════════════════════
+-- CLEANUP OLD GUI
+-- ═══════════════════════════════════════════════════════════
+
+if CoreGui:FindFirstChild("StatsOverlay") then
+    CoreGui.StatsOverlay:Destroy()
+end
+
+-- ═══════════════════════════════════════════════════════════
+-- GUI CREATION
+-- ═══════════════════════════════════════════════════════════
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "StatsOverlay"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.Parent = CoreGui
+
+local Background = Instance.new("Frame")
+Background.Size = UDim2.fromScale(1,1)
+Background.BackgroundColor3 = Color3.new(0,0,0)
+Background.BackgroundTransparency = 0
+Background.Parent = ScreenGui
+
+local Container = Instance.new("Frame")
+Container.Size = UDim2.fromOffset(420, 320)
+Container.Position = UDim2.fromScale(0.5,0.5)
+Container.AnchorPoint = Vector2.new(0.5,0.5)
+Container.BackgroundTransparency = 1
+Container.Parent = Background
+
+-- Title
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1,0,0,50)
+Title.BackgroundTransparency = 1
+Title.Text = "STATS OVERLAY"
+Title.Font = Enum.Font.GothamBold
+Title.TextSize = 32
+Title.TextColor3 = Color3.new(1,1,1)
+Title.Parent = Container
+
+-- Player
+local PlayerValue = Instance.new("TextLabel")
+PlayerValue.Position = UDim2.fromOffset(0,90)
+PlayerValue.Size = UDim2.new(1,0,0,30)
+PlayerValue.BackgroundTransparency = 1
+PlayerValue.Text = LocalPlayer.Name
+PlayerValue.Font = Enum.Font.GothamBold
+PlayerValue.TextSize = 24
+PlayerValue.TextColor3 = Color3.fromRGB(0,255,127)
+PlayerValue.Parent = Container
+
+-- Diamonds
+local DiamondsValue = Instance.new("TextLabel")
+DiamondsValue.Position = UDim2.fromOffset(0,160)
+DiamondsValue.Size = UDim2.new(1,0,0,30)
+DiamondsValue.BackgroundTransparency = 1
+DiamondsValue.Text = "0"
+DiamondsValue.Font = Enum.Font.GothamBold
+DiamondsValue.TextSize = 24
+DiamondsValue.TextColor3 = Color3.fromRGB(0,191,255)
+DiamondsValue.Parent = Container
+
+-- Timer
+local TimerValue = Instance.new("TextLabel")
+TimerValue.Position = UDim2.fromOffset(0,220)
+TimerValue.Size = UDim2.new(1,0,0,40)
+TimerValue.BackgroundTransparency = 1
+TimerValue.Text = "00:00:00"
+TimerValue.Font = Enum.Font.GothamBold
+TimerValue.TextSize = 28
+TimerValue.TextColor3 = Color3.fromRGB(255,215,0)
+TimerValue.Parent = Container
+
+-- Close Button
+local CloseButton = Instance.new("TextButton")
+CloseButton.Size = UDim2.fromOffset(140,40)
+CloseButton.Position = UDim2.fromScale(0.5,1)
+CloseButton.AnchorPoint = Vector2.new(0.5,1)
+CloseButton.BackgroundColor3 = Color3.fromRGB(220,20,60)
+CloseButton.Text = "CLOSE"
+CloseButton.Font = Enum.Font.GothamBold
+CloseButton.TextColor3 = Color3.new(1,1,1)
+CloseButton.TextSize = 18
+CloseButton.Parent = Container
+
+Instance.new("UICorner", CloseButton).CornerRadius = UDim.new(0,8)
+
+-- ═══════════════════════════════════════════════════════════
+-- STATE + TOGGLE SYSTEM
+-- ═══════════════════════════════════════════════════════════
+
+local visible = true
+local startTime = os.clock()
+
+local function setVisible(state)
+    visible = state
+    Background.Visible = state
+end
+
+CloseButton.MouseButton1Click:Connect(function()
+    setVisible(false)
+end)
+
+-- ═══════════════════════════════════════════════════════════
+-- UPDATE LOOP (SAFE)
+-- ═══════════════════════════════════════════════════════════
+
+RunService.RenderStepped:Connect(function()
+    if not visible then return end
+    DiamondsValue.Text = formatNumber(getDiamonds())
+    TimerValue.Text = formatTime(os.clock() - startTime)
+end)
+
+-- ═══════════════════════════════════════════════════════════
+-- GLOBAL CONTROL (ADVANCED)
+-- ═══════════════════════════════════════════════════════════
+
+getgenv().StatsOverlay = {
+    open = function() setVisible(true) end,
+    close = function() setVisible(false) end,
+    toggle = function() setVisible(not visible) end,
+    destroy = function() ScreenGui:Destroy() end
+}
+
+print("✓ ADVANCED STATS OVERLAY LOADED")
+print("Commands:")
+print("StatsOverlay.open()")
+print("StatsOverlay.close()")
+print("StatsOverlay.toggle()")
