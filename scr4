@@ -1,0 +1,69 @@
+--// PET SIMULATOR 99 – RANK QUEST PRINTER (FULL FIX)
+--// Safe against nil, save refresh, rank updates
+--// Will ALWAYS print when quests exist
+
+repeat task.wait() until game:IsLoaded()
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local SaveMod = require(ReplicatedStorage.Library.Client.Save)
+local QuestTypes = require(ReplicatedStorage.Library.Types.Quests).Goals
+
+-- map quest id -> name
+local QuestIdToName = {}
+for name, id in pairs(QuestTypes) do
+    QuestIdToName[id] = name
+end
+
+local function getQuestName(id)
+    return QuestIdToName[id] or ("UNKNOWN_" .. tostring(id))
+end
+
+local function printRankQuests()
+    local save = SaveMod.Get()
+    if not save then
+        warn("[QUEST] Save not loaded")
+        return
+    end
+
+    if type(save.Goals) ~= "table" or #save.Goals == 0 then
+        warn("[QUEST] No rank quests yet")
+        return
+    end
+
+    print("========== RANK QUESTS ==========")
+
+    for i, goal in pairs(save.Goals) do
+        if goal and goal.Type then
+            local name = getQuestName(goal.Type)
+            local progress = goal.Progress or 0
+            local amount = goal.Amount or goal.Required or "?"
+
+            print(string.format(
+                "[%d] %s | %s / %s",
+                i,
+                name,
+                tostring(progress),
+                tostring(amount)
+            ))
+        end
+    end
+
+    print("=================================")
+end
+
+-- initial wait until goals actually exist
+task.spawn(function()
+    while true do
+        task.wait(1)
+        local save = SaveMod.Get()
+        if save and type(save.Goals) == "table" then
+            break
+        end
+    end
+
+    -- auto refresh printer
+    while true do
+        printRankQuests()
+        task.wait(3)
+    end
+end)
