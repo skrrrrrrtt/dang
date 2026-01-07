@@ -1,0 +1,89 @@
+--[[
+Print Active Quests Script
+Based on autoRanker.lua API
+]]--
+
+-- Get required services and libraries
+local Players = cloneref(game:GetService("Players"))
+local LocalPlayer = Players.LocalPlayer
+local ReplicatedStorage = cloneref(game:GetService("ReplicatedStorage"))
+local Library = ReplicatedStorage.Library
+local Client = require(Library.Client)
+local Quests = require(Library.Types.Quests)
+local QuestCmds = Client.QuestCmds
+
+-- Helper Functions
+local function getPlayerSave()
+    return Client.Save.GetSaves()[LocalPlayer]
+end
+
+local function getGoals()
+    return getPlayerSave().Goals
+end
+
+local function findQuestType(qType)
+    for v, i in Quests.Goals do
+        if qType == i then
+            return tostring(v)
+        end
+    end
+    return "Unknown"
+end
+
+-- Function to get all active quests (same as in autoRanker.lua)
+local function getQuests()
+    local rTable = {}
+    for _, v in getGoals() do
+        table.insert(rTable, {
+            Goal = v,
+            TypeAsString = findQuestType(v.Type),
+            Title = QuestCmds.MakeTitle(v)
+        })
+    end
+    return rTable
+end
+
+-- Function to print quest information in a formatted way
+local function printActiveQuests()
+    local quests = getQuests()
+    
+    if not quests or #quests == 0 then
+        print("No active quests found!")
+        return
+    end
+    
+    print("\n========== ACTIVE QUESTS ==========")
+    print("Total Active Quests:", #quests)
+    print("===================================\n")
+    
+    for index, quest in ipairs(quests) do
+        print(string.format("Quest #%d:", index))
+        print("  Title:", quest.Title or "Unknown")
+        print("  Type:", quest.TypeAsString or "Unknown")
+        print("  UID:", quest.Goal and quest.Goal.UID or "Unknown")
+        print("  Stars:", quest.Goal and quest.Goal.Stars or "Unknown")
+        
+        -- Print progress if available
+        if quest.Progress then
+            print("  Progress:", quest.Progress.Progress or 0, "/", quest.Progress.Target or "?")
+        end
+        
+        -- Print completion status
+        if quest.Goal and quest.Goal.Complete ~= nil then
+            print("  Complete:", quest.Goal.Complete and "Yes" or "No")
+        end
+        
+        print("-----------------------------------")
+    end
+    
+    print("\n===================================\n")
+end
+
+-- Main execution
+local success, error = pcall(function()
+    printActiveQuests()
+end)
+
+if not success then
+    warn("Error printing active quests:", error)
+end
