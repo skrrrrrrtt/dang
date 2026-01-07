@@ -1,0 +1,391 @@
+-- Pet Simulator 99 Auto Lockpick (FIXED - Door Number Support)
+-- Based on actual PS99 remotes
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Network = ReplicatedStorage:WaitForChild("Network")
+local Players = game:GetService("Players")
+
+-- Configuration
+local config = {
+    autoLockpick = false,
+    lockpickType = "Lockpick A", -- "Lockpick A" (Normal), "Lockpick B" (Golden), "Lockpick C" (Diamond)
+    doorNumber = 1, -- 1 = Easy, 2 = Medium, 3 = Hard
+    delayBetweenAttempts = 3,
+    clicksPerAttempt = 15,
+}
+
+-- Create GUI
+local function createGUI()
+    local player = Players.LocalPlayer
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "AutoLockpickGUI"
+    screenGui.ResetOnSpawn = false
+    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    
+    -- Main Frame (Draggable)
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Name = "MainFrame"
+    mainFrame.Size = UDim2.new(0, 220, 0, 220)
+    mainFrame.Position = UDim2.new(0.5, -110, 0.1, 0)
+    mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+    mainFrame.BorderSizePixel = 0
+    mainFrame.Active = true
+    mainFrame.Draggable = true
+    mainFrame.Parent = screenGui
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 12)
+    corner.Parent = mainFrame
+    
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(60, 60, 80)
+    stroke.Thickness = 2
+    stroke.Parent = mainFrame
+    
+    -- Title
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, 0, 0, 30)
+    title.BackgroundTransparency = 1
+    title.Text = "🔓 Auto Lockpick"
+    title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    title.TextSize = 16
+    title.Font = Enum.Font.GothamBold
+    title.Parent = mainFrame
+    
+    -- Status Label
+    local statusLabel = Instance.new("TextLabel")
+    statusLabel.Size = UDim2.new(1, -20, 0, 20)
+    statusLabel.Position = UDim2.new(0, 10, 0, 35)
+    statusLabel.BackgroundTransparency = 1
+    statusLabel.Text = "Status: OFF"
+    statusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+    statusLabel.TextSize = 14
+    statusLabel.Font = Enum.Font.Gotham
+    statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+    statusLabel.Parent = mainFrame
+    
+    -- Door Label
+    local doorLabel = Instance.new("TextLabel")
+    doorLabel.Size = UDim2.new(1, -20, 0, 20)
+    doorLabel.Position = UDim2.new(0, 10, 0, 60)
+    doorLabel.BackgroundTransparency = 1
+    doorLabel.Text = "Door: 1 (Easy) 🚪"
+    doorLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+    doorLabel.TextSize = 12
+    doorLabel.Font = Enum.Font.Gotham
+    doorLabel.TextXAlignment = Enum.TextXAlignment.Left
+    doorLabel.Parent = mainFrame
+    
+    -- Door Selection Buttons
+    local doorContainer = Instance.new("Frame")
+    doorContainer.Size = UDim2.new(1, -20, 0, 30)
+    doorContainer.Position = UDim2.new(0, 10, 0, 85)
+    doorContainer.BackgroundTransparency = 1
+    doorContainer.Parent = mainFrame
+    
+    local door1Button = Instance.new("TextButton")
+    door1Button.Size = UDim2.new(0.3, -5, 1, 0)
+    door1Button.Position = UDim2.new(0, 0, 0, 0)
+    door1Button.BackgroundColor3 = Color3.fromRGB(100, 200, 100)
+    door1Button.Text = "Door 1"
+    door1Button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    door1Button.TextSize = 12
+    door1Button.Font = Enum.Font.GothamBold
+    door1Button.Parent = doorContainer
+    
+    local door1Corner = Instance.new("UICorner")
+    door1Corner.CornerRadius = UDim.new(0, 6)
+    door1Corner.Parent = door1Button
+    
+    local door2Button = Instance.new("TextButton")
+    door2Button.Size = UDim2.new(0.3, -5, 1, 0)
+    door2Button.Position = UDim2.new(0.35, 0, 0, 0)
+    door2Button.BackgroundColor3 = Color3.fromRGB(80, 80, 90)
+    door2Button.Text = "Door 2"
+    door2Button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    door2Button.TextSize = 12
+    door2Button.Font = Enum.Font.GothamBold
+    door2Button.Parent = doorContainer
+    
+    local door2Corner = Instance.new("UICorner")
+    door2Corner.CornerRadius = UDim.new(0, 6)
+    door2Corner.Parent = door2Button
+    
+    local door3Button = Instance.new("TextButton")
+    door3Button.Size = UDim2.new(0.3, -5, 1, 0)
+    door3Button.Position = UDim2.new(0.7, 0, 0, 0)
+    door3Button.BackgroundColor3 = Color3.fromRGB(80, 80, 90)
+    door3Button.Text = "Door 3"
+    door3Button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    door3Button.TextSize = 12
+    door3Button.Font = Enum.Font.GothamBold
+    door3Button.Parent = doorContainer
+    
+    local door3Corner = Instance.new("UICorner")
+    door3Corner.CornerRadius = UDim.new(0, 6)
+    door3Corner.Parent = door3Button
+    
+    -- Lockpick Type Label
+    local typeLabel = Instance.new("TextLabel")
+    typeLabel.Size = UDim2.new(1, -20, 0, 20)
+    typeLabel.Position = UDim2.new(0, 10, 0, 120)
+    typeLabel.BackgroundTransparency = 1
+    typeLabel.Text = "Lockpick: Normal 🔑"
+    typeLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+    typeLabel.TextSize = 12
+    typeLabel.Font = Enum.Font.Gotham
+    typeLabel.TextXAlignment = Enum.TextXAlignment.Left
+    typeLabel.Parent = mainFrame
+    
+    -- Lockpick Type Buttons Container
+    local buttonContainer = Instance.new("Frame")
+    buttonContainer.Size = UDim2.new(1, -20, 0, 30)
+    buttonContainer.Position = UDim2.new(0, 10, 0, 145)
+    buttonContainer.BackgroundTransparency = 1
+    buttonContainer.Parent = mainFrame
+    
+    -- Normal Button
+    local normalButton = Instance.new("TextButton")
+    normalButton.Size = UDim2.new(0.3, -5, 1, 0)
+    normalButton.Position = UDim2.new(0, 0, 0, 0)
+    normalButton.BackgroundColor3 = Color3.fromRGB(100, 150, 255)
+    normalButton.Text = "Normal"
+    normalButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    normalButton.TextSize = 12
+    normalButton.Font = Enum.Font.GothamBold
+    normalButton.Parent = buttonContainer
+    
+    local normalCorner = Instance.new("UICorner")
+    normalCorner.CornerRadius = UDim.new(0, 6)
+    normalCorner.Parent = normalButton
+    
+    -- Golden Button
+    local goldenButton = Instance.new("TextButton")
+    goldenButton.Size = UDim2.new(0.3, -5, 1, 0)
+    goldenButton.Position = UDim2.new(0.35, 0, 0, 0)
+    goldenButton.BackgroundColor3 = Color3.fromRGB(80, 80, 90)
+    goldenButton.Text = "Golden"
+    goldenButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    goldenButton.TextSize = 12
+    goldenButton.Font = Enum.Font.GothamBold
+    goldenButton.Parent = buttonContainer
+    
+    local goldenCorner = Instance.new("UICorner")
+    goldenCorner.CornerRadius = UDim.new(0, 6)
+    goldenCorner.Parent = goldenButton
+    
+    -- Diamond Button
+    local diamondButton = Instance.new("TextButton")
+    diamondButton.Size = UDim2.new(0.3, -5, 1, 0)
+    diamondButton.Position = UDim2.new(0.7, 0, 0, 0)
+    diamondButton.BackgroundColor3 = Color3.fromRGB(80, 80, 90)
+    diamondButton.Text = "Diamond"
+    diamondButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    diamondButton.TextSize = 12
+    diamondButton.Font = Enum.Font.GothamBold
+    diamondButton.Parent = buttonContainer
+    
+    local diamondCorner = Instance.new("UICorner")
+    diamondCorner.CornerRadius = UDim.new(0, 6)
+    diamondCorner.Parent = diamondButton
+    
+    -- Toggle Button
+    local toggleButton = Instance.new("TextButton")
+    toggleButton.Size = UDim2.new(0, 200, 0, 35)
+    toggleButton.Position = UDim2.new(0, 10, 0, 180)
+    toggleButton.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
+    toggleButton.Text = "START"
+    toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    toggleButton.TextSize = 16
+    toggleButton.Font = Enum.Font.GothamBold
+    toggleButton.Parent = mainFrame
+    
+    local buttonCorner = Instance.new("UICorner")
+    buttonCorner.CornerRadius = UDim.new(0, 8)
+    buttonCorner.Parent = toggleButton
+    
+    screenGui.Parent = player:WaitForChild("PlayerGui")
+    
+    return screenGui, toggleButton, statusLabel, typeLabel, doorLabel, normalButton, goldenButton, diamondButton, door1Button, door2Button, door3Button
+end
+
+-- Function to update GUI
+local function updateGUI(statusLabel, typeLabel, doorLabel, normalButton, goldenButton, diamondButton, door1Button, door2Button, door3Button)
+    if config.autoLockpick then
+        statusLabel.Text = "Status: ON"
+        statusLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
+    else
+        statusLabel.Text = "Status: OFF"
+        statusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+    end
+    
+    local displayName = config.lockpickType == "Lockpick A" and "Normal 🔑" 
+                     or config.lockpickType == "Lockpick B" and "Golden 🟡" 
+                     or "Diamond 💎"
+    typeLabel.Text = "Lockpick: " .. displayName
+    
+    local doorDifficulty = config.doorNumber == 1 and "(Easy)" or config.doorNumber == 2 and "(Medium)" or "(Hard)"
+    doorLabel.Text = "Door: " .. config.doorNumber .. " " .. doorDifficulty .. " 🚪"
+    
+    -- Update lockpick button colors
+    normalButton.BackgroundColor3 = config.lockpickType == "Lockpick A" and Color3.fromRGB(100, 150, 255) or Color3.fromRGB(80, 80, 90)
+    goldenButton.BackgroundColor3 = config.lockpickType == "Lockpick B" and Color3.fromRGB(255, 215, 0) or Color3.fromRGB(80, 80, 90)
+    diamondButton.BackgroundColor3 = config.lockpickType == "Lockpick C" and Color3.fromRGB(100, 200, 255) or Color3.fromRGB(80, 80, 90)
+    
+    -- Update door button colors
+    door1Button.BackgroundColor3 = config.doorNumber == 1 and Color3.fromRGB(100, 200, 100) or Color3.fromRGB(80, 80, 90)
+    door2Button.BackgroundColor3 = config.doorNumber == 2 and Color3.fromRGB(255, 180, 0) or Color3.fromRGB(80, 80, 90)
+    door3Button.BackgroundColor3 = config.doorNumber == 3 and Color3.fromRGB(255, 100, 100) or Color3.fromRGB(80, 80, 90)
+end
+
+-- Function to attempt lockpick
+local function attemptLockpick()
+    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    print("🚪 Door:", config.doorNumber, "| Lockpick:", config.lockpickType)
+    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    
+    -- Step 1: Request Unlock with lockpick type AND door number
+    local requestUnlock = Network:FindFirstChild("Lockpick Game: Request Unlock")
+    if requestUnlock then
+        local success, response = pcall(function()
+            -- Try with door number parameter
+            return requestUnlock:InvokeServer(config.lockpickType, config.doorNumber)
+        end)
+        
+        if success and response then
+            print("✅ Lockpick game started!")
+        else
+            -- If that didn't work, try without door number
+            success, response = pcall(function()
+                return requestUnlock:InvokeServer(config.lockpickType)
+            end)
+            
+            if not success or not response then
+                warn("⚠️ Failed to start lockpick. Make sure you're near a Grinch Cove door!")
+                warn("⚠️ Error:", response)
+                return false
+            end
+        end
+    else
+        warn("⚠️ 'Lockpick Game: Request Unlock' not found!")
+        return false
+    end
+    
+    wait(0.3)
+    
+    -- Step 2: Perform clicks (the minigame requires clicks)
+    local clickEvent = Network:FindFirstChild("Click")
+    if clickEvent then
+        for i = 1, config.clicksPerAttempt do
+            pcall(function()
+                clickEvent:FireServer()
+            end)
+            wait(0.08)
+        end
+        print("🖱️ Performed", config.clicksPerAttempt, "clicks")
+    end
+    
+    wait(0.5)
+    
+    -- Step 3: Claim the result
+    local claimEvent = Network:FindFirstChild("Lockpick Game: Claim")
+    if claimEvent then
+        local success, result = pcall(function()
+            return claimEvent:InvokeServer()
+        end)
+        
+        if success and result then
+            print("🎉 SUCCESS! Door", config.doorNumber, "unlocked!")
+            return true
+        else
+            print("❌ Lockpick broke! Retrying...")
+            return false
+        end
+    end
+    
+    return false
+end
+
+-- Create the GUI
+local gui, toggleButton, statusLabel, typeLabel, doorLabel, normalButton, goldenButton, diamondButton, door1Button, door2Button, door3Button = createGUI()
+
+-- Main lockpick loop
+spawn(function()
+    while wait(0.5) do
+        if config.autoLockpick then
+            local success, err = pcall(attemptLockpick)
+            
+            if not success then
+                warn("⚠️ Error:", err)
+            end
+            
+            wait(config.delayBetweenAttempts)
+        end
+    end
+end)
+
+-- Toggle button
+toggleButton.MouseButton1Click:Connect(function()
+    config.autoLockpick = not config.autoLockpick
+    
+    if config.autoLockpick then
+        toggleButton.BackgroundColor3 = Color3.fromRGB(50, 220, 50)
+        toggleButton.Text = "STOP"
+        print("🟢 Auto Lockpick STARTED!")
+    else
+        toggleButton.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
+        toggleButton.Text = "START"
+        print("🔴 Auto Lockpick STOPPED!")
+    end
+    
+    updateGUI(statusLabel, typeLabel, doorLabel, normalButton, goldenButton, diamondButton, door1Button, door2Button, door3Button)
+end)
+
+-- Lockpick selection buttons
+normalButton.MouseButton1Click:Connect(function()
+    config.lockpickType = "Lockpick A"
+    print("🔑 Selected: Normal Lockpick")
+    updateGUI(statusLabel, typeLabel, doorLabel, normalButton, goldenButton, diamondButton, door1Button, door2Button, door3Button)
+end)
+
+goldenButton.MouseButton1Click:Connect(function()
+    config.lockpickType = "Lockpick B"
+    print("🟡 Selected: Golden Lockpick")
+    updateGUI(statusLabel, typeLabel, doorLabel, normalButton, goldenButton, diamondButton, door1Button, door2Button, door3Button)
+end)
+
+diamondButton.MouseButton1Click:Connect(function()
+    config.lockpickType = "Lockpick C"
+    print("💎 Selected: Diamond Lockpick")
+    updateGUI(statusLabel, typeLabel, doorLabel, normalButton, goldenButton, diamondButton, door1Button, door2Button, door3Button)
+end)
+
+-- Door selection buttons
+door1Button.MouseButton1Click:Connect(function()
+    config.doorNumber = 1
+    print("🚪 Selected: Door 1 (Easy)")
+    updateGUI(statusLabel, typeLabel, doorLabel, normalButton, goldenButton, diamondButton, door1Button, door2Button, door3Button)
+end)
+
+door2Button.MouseButton1Click:Connect(function()
+    config.doorNumber = 2
+    print("🚪 Selected: Door 2 (Medium)")
+    updateGUI(statusLabel, typeLabel, doorLabel, normalButton, goldenButton, diamondButton, door1Button, door2Button, door3Button)
+end)
+
+door3Button.MouseButton1Click:Connect(function()
+    config.doorNumber = 3
+    print("🚪 Selected: Door 3 (Hard)")
+    updateGUI(statusLabel, typeLabel, doorLabel, normalButton, goldenButton, diamondButton, door1Button, door2Button, door3Button)
+end)
+
+print("━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+print("🎮 PS99 Auto Lockpick Loaded!")
+print("⚠️ IMPORTANT:")
+print("1. Stand CLOSE to a Grinch Cove door")
+print("2. Have lockpicks in your inventory")
+print("3. Select door number & lockpick type")
+print("4. Press START")
+print("━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+updateGUI(statusLabel, typeLabel, doorLabel, normalButton, goldenButton, diamondButton, door1Button, door2Button, door3Button)
