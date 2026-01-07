@@ -1,0 +1,234 @@
+-- Pet Simulator 99 Auto Lockpick with Toggle GUI
+-- Features: Moveable button, ON/OFF toggle, Door progression
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Network = ReplicatedStorage:WaitForChild("Network")
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+
+-- Configuration
+local config = {
+    autoLockpick = false, -- Starts OFF
+    useDoorProgression = true,
+    delayBetweenAttempts = 3,
+}
+
+-- Door types
+local doorOrder = {"Easy", "Medium", "Hard"}
+local currentDoorIndex = 1
+
+-- Create GUI
+local function createGUI()
+    local player = Players.LocalPlayer
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "AutoLockpickGUI"
+    screenGui.ResetOnSpawn = false
+    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    
+    -- Main Frame (Draggable)
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Name = "MainFrame"
+    mainFrame.Size = UDim2.new(0, 200, 0, 120)
+    mainFrame.Position = UDim2.new(0.5, -100, 0.1, 0)
+    mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+    mainFrame.BorderSizePixel = 0
+    mainFrame.Active = true
+    mainFrame.Draggable = true
+    mainFrame.Parent = screenGui
+    
+    -- Add rounded corners
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 12)
+    corner.Parent = mainFrame
+    
+    -- Add shadow/border effect
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(60, 60, 80)
+    stroke.Thickness = 2
+    stroke.Parent = mainFrame
+    
+    -- Title
+    local title = Instance.new("TextLabel")
+    title.Name = "Title"
+    title.Size = UDim2.new(1, 0, 0, 30)
+    title.BackgroundTransparency = 1
+    title.Text = "🔓 Auto Lockpick"
+    title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    title.TextSize = 16
+    title.Font = Enum.Font.GothamBold
+    title.Parent = mainFrame
+    
+    -- Status Label
+    local statusLabel = Instance.new("TextLabel")
+    statusLabel.Name = "StatusLabel"
+    statusLabel.Size = UDim2.new(1, -20, 0, 20)
+    statusLabel.Position = UDim2.new(0, 10, 0, 35)
+    statusLabel.BackgroundTransparency = 1
+    statusLabel.Text = "Status: OFF"
+    statusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+    statusLabel.TextSize = 14
+    statusLabel.Font = Enum.Font.Gotham
+    statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+    statusLabel.Parent = mainFrame
+    
+    -- Door Label
+    local doorLabel = Instance.new("TextLabel")
+    doorLabel.Name = "DoorLabel"
+    doorLabel.Size = UDim2.new(1, -20, 0, 20)
+    doorLabel.Position = UDim2.new(0, 10, 0, 55)
+    doorLabel.BackgroundTransparency = 1
+    doorLabel.Text = "Door: Easy"
+    doorLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+    doorLabel.TextSize = 12
+    doorLabel.Font = Enum.Font.Gotham
+    doorLabel.TextXAlignment = Enum.TextXAlignment.Left
+    doorLabel.Parent = mainFrame
+    
+    -- Toggle Button
+    local toggleButton = Instance.new("TextButton")
+    toggleButton.Name = "ToggleButton"
+    toggleButton.Size = UDim2.new(0, 180, 0, 35)
+    toggleButton.Position = UDim2.new(0, 10, 0, 80)
+    toggleButton.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
+    toggleButton.Text = "START"
+    toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+    toggleButton.TextSize = 16
+    toggleButton.Font = Enum.Font.GothamBold
+    toggleButton.Parent = mainFrame
+    
+    local buttonCorner = Instance.new("UICorner")
+    buttonCorner.CornerRadius = UDim.new(0, 8)
+    buttonCorner.Parent = toggleButton
+    
+    screenGui.Parent = player:WaitForChild("PlayerGui")
+    
+    return screenGui, toggleButton, statusLabel, doorLabel
+end
+
+-- Function to update GUI
+local function updateGUI(statusLabel, doorLabel)
+    if config.autoLockpick then
+        statusLabel.Text = "Status: ON"
+        statusLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
+    else
+        statusLabel.Text = "Status: OFF"
+        statusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+    end
+    
+    doorLabel.Text = "Door: " .. doorOrder[currentDoorIndex]
+end
+
+-- Function to attempt lockpick
+local function attemptLockpick()
+    local currentDoor = doorOrder[currentDoorIndex]
+    
+    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    print("🚪 Attempting:", currentDoor, "Door")
+    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    
+    -- Request to unlock the door
+    local requestUnlock = Network:FindFirstChild("Lockpick Game: Request Unlock")
+    if requestUnlock then
+        local success, response = pcall(function()
+            return requestUnlock:InvokeServer()
+        end)
+        
+        if success then
+            print("✅ Unlock request sent!")
+        else
+            warn("⚠️ Failed to request unlock")
+            return false
+        end
+    end
+    
+    -- Wait for the lockpick minigame to complete
+    wait(2)
+    
+    -- Claim the reward
+    local claimEvent = Network:FindFirstChild("Lockpick Game: Claim")
+    if claimEvent then
+        local success, result = pcall(function()
+            return claimEvent:InvokeServer()
+        end)
+        
+        if success then
+            if result then
+                print("🎉 SUCCESS! Claimed reward from", currentDoor, "door!")
+                
+                -- Progress to next door if enabled
+                if config.useDoorProgression then
+                    if currentDoorIndex < #doorOrder then
+                        currentDoorIndex = currentDoorIndex + 1
+                        print("⬆️ Progressing to:", doorOrder[currentDoorIndex], "door")
+                    else
+                        print("🔄 All doors completed! Restarting from Easy...")
+                        currentDoorIndex = 1
+                    end
+                end
+                
+                return true
+            else
+                print("❌ Lockpick broke! Trying again...")
+                return false
+            end
+        else
+            warn("⚠️ Failed to claim reward")
+            return false
+        end
+    end
+    
+    return false
+end
+
+-- Create the GUI
+local gui, toggleButton, statusLabel, doorLabel = createGUI()
+
+-- Main lockpick loop
+spawn(function()
+    while wait(0.5) do
+        if config.autoLockpick then
+            local success, err = pcall(attemptLockpick)
+            
+            if not success then
+                warn("⚠️ Error:", err)
+            end
+            
+            updateGUI(statusLabel, doorLabel)
+            wait(config.delayBetweenAttempts)
+        end
+    end
+end)
+
+-- Toggle button click handler
+toggleButton.MouseButton1Click:Connect(function()
+    config.autoLockpick = not config.autoLockpick
+    
+    if config.autoLockpick then
+        toggleButton.BackgroundColor3 = Color3.fromRGB(50, 220, 50)
+        toggleButton.Text = "STOP"
+        print("🟢 Auto Lockpick STARTED!")
+    else
+        toggleButton.BackgroundColor3 = Color3.fromRGB(220, 50, 50)
+        toggleButton.Text = "START"
+        print("🔴 Auto Lockpick STOPPED!")
+    end
+    
+    updateGUI(statusLabel, doorLabel)
+end)
+
+-- Add hover effect
+toggleButton.MouseEnter:Connect(function()
+    toggleButton.TextSize = 18
+end)
+
+toggleButton.MouseLeave:Connect(function()
+    toggleButton.TextSize = 16
+end)
+
+print("━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+print("🎮 PS99 Auto Lockpick GUI Loaded!")
+print("📍 Drag the button to move it!")
+print("🖱️ Click to toggle ON/OFF")
+print("━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+updateGUI(statusLabel, doorLabel)
