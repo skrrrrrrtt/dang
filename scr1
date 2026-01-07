@@ -1,0 +1,106 @@
+--[[
+    Quest Viewer Script
+    Shows and prints all current quests
+]]--
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+-- Load required libraries
+local Library = ReplicatedStorage.Library
+local Client = require(Library.Client)
+local QuestCmds = Client.QuestCmds
+
+-- Function to get all current quests
+local function getQuests()
+    local playerSave = Client.Save.GetSaves()[LocalPlayer]
+    if playerSave and playerSave.Goals then
+        return playerSave.Goals
+    end
+    return {}
+end
+
+-- Function to format quest information
+local function formatQuest(quest)
+    local info = {
+        ["Title"] = quest.Title or "Unknown Quest",
+        ["Type"] = quest.TypeAsString or "Unknown Type",
+        ["UID"] = quest.Goal and quest.Goal.UID or "No UID",
+        ["Stars"] = quest.Goal and quest.Goal.Stars or 0,
+        ["Progress"] = quest.Goal and quest.Goal.Progress or 0,
+        ["Goal Amount"] = quest.Goal and quest.Goal.Amount or 0,
+        ["Completed"] = quest.Goal and quest.Goal.Progress >= quest.Goal.Amount
+    }
+    return info
+end
+
+-- Function to print all quests
+local function printQuests()
+    print("==========================================")
+    print("         CURRENT QUESTS")
+    print("==========================================")
+    
+    local quests = getQuests()
+    local questCount = 0
+    
+    for _, quest in pairs(quests) do
+        questCount = questCount + 1
+        local questInfo = formatQuest(quest)
+        
+        print("\n--- Quest #" .. questCount .. " ---")
+        print("Title: " .. questInfo["Title"])
+        print("Type: " .. questInfo["Type"])
+        print("UID: " .. questInfo["UID"])
+        print("Stars: " .. questInfo["Stars"])
+        print("Progress: " .. questInfo["Progress"] .. "/" .. questInfo["Goal Amount"])
+        
+        if questInfo["Completed"] then
+            print("Status: ✓ COMPLETED")
+        else
+            local percentage = math.floor((questInfo["Progress"] / questInfo["Goal Amount"]) * 100)
+            print("Status: " .. percentage .. "% Complete")
+        end
+    end
+    
+    if questCount == 0 then
+        print("\nNo active quests found!")
+    else
+        print("\n==========================================")
+        print("Total Quests: " .. questCount)
+        print("==========================================")
+    end
+end
+
+-- Function to get quest table format
+local function getQuestTable()
+    local quests = getQuests()
+    local questTable = {}
+    
+    for _, quest in pairs(quests) do
+        table.insert(questTable, formatQuest(quest))
+    end
+    
+    return questTable
+end
+
+-- Main execution
+print("Quest Viewer Loaded!")
+print("Running quest check...")
+
+-- Print all current quests
+printQuests()
+
+-- Store quests in global table for easy access
+getgenv().currentQuests = getQuestTable()
+
+print("\nYou can access quests programmatically via: getgenv().currentQuests")
+print("Run 'printQuests()' again to refresh the quest list")
+
+-- Return the functions for reuse
+return {
+    getQuests = getQuests,
+    printQuests = printQuests,
+    getQuestTable = getQuestTable,
+    formatQuest = formatQuest
+}
