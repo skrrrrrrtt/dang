@@ -1,0 +1,84 @@
+-- =====================================================
+-- MERRY MULE MONITOR
+-- =====================================================
+
+repeat wait() until game:IsLoaded()
+repeat wait() until game.Players.LocalPlayer
+
+local plr = game.Players.LocalPlayer
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+print("=================================")
+print("🎄 MERRY MULE MONITOR")
+print("=================================")
+
+local function getSave()
+    local ok, sd = pcall(function()
+        return require(ReplicatedStorage.Library.Client.Save).Get()
+    end)
+    if ok then return sd end
+    return nil
+end
+
+local function countMerryMule()
+    local sd = getSave()
+    if not sd then return nil end
+    
+    local counts = {
+        Normal = 0,
+        Golden = 0,
+        Rainbow = 0,
+        ShinyRainbow = 0,
+        Total = 0
+    }
+    
+    if sd.Inventory and sd.Inventory.Pet then
+        for uid, pet in pairs(sd.Inventory.Pet) do
+            if pet.id == "Merry Mule" then
+                local amount = pet._am or 1
+                local pt = pet.pt -- nil = normal, 1 = golden, 2 = rainbow
+                local sh = pet.sh == true
+                
+                if sh and pt == 2 then
+                    counts.ShinyRainbow = counts.ShinyRainbow + amount
+                elseif pt == 2 then
+                    counts.Rainbow = counts.Rainbow + amount
+                elseif pt == 1 then
+                    counts.Golden = counts.Golden + amount
+                else
+                    counts.Normal = counts.Normal + amount
+                end
+                
+                counts.Total = counts.Total + amount
+            end
+        end
+    end
+    
+    return counts
+end
+
+-- Initial count
+local counts = countMerryMule()
+if counts then
+    print("🐴 Merry Mule Count:")
+    print("  Normal: " .. counts.Normal)
+    print("  Golden: " .. counts.Golden)
+    print("  Rainbow: " .. counts.Rainbow)
+    print("  Shiny Rainbow: " .. counts.ShinyRainbow)
+    print("  TOTAL: " .. counts.Total)
+else
+    print("❌ Could not get pet data")
+end
+print("=================================")
+
+-- Monitor every 10 seconds
+while wait(10) do
+    counts = countMerryMule()
+    if counts then
+        print("🐴 Merry Mule: " .. counts.Total .. 
+              " (N:" .. counts.Normal .. 
+              " G:" .. counts.Golden .. 
+              " R:" .. counts.Rainbow .. 
+              " SR:" .. counts.ShinyRainbow .. ")")
+    end
+end
