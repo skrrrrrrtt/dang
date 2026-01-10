@@ -39,7 +39,7 @@ local function createGUI()
     status.Position = UDim2.new(0,10,0,35)
     status.Size = UDim2.new(1,-20,0,20)
     status.BackgroundTransparency = 1
-    status.TextXAlignment = Left
+    status.TextXAlignment = Enum.TextXAlignment.Left
     status.Text = "Status: OFF"
     status.TextColor3 = Color3.fromRGB(255,100,100)
 
