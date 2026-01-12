@@ -1,0 +1,146 @@
+-- PS99 FULL GAME SCANNER
+-- Scans EVERYTHING useful in the game
+
+local Services = {
+    Workspace = game:GetService("Workspace"),
+    ReplicatedStorage = game:GetService("ReplicatedStorage"),
+    Players = game:GetService("Players"),
+    Lighting = game:GetService("Lighting"),
+}
+
+local LocalPlayer = Services.Players.LocalPlayer
+
+print("==============================================")
+print("      PS99 FULL GAME SCANNER - BIG GAMES      ")
+print("==============================================")
+print("")
+
+local results = {
+    Parts = {},
+    Models = {},
+    Interactables = {},
+    Remotes = {},
+    AttributeObjects = {}
+}
+
+-- Utility
+local function hasAttributes(obj)
+    local attrs = obj:GetAttributes()
+    return attrs and next(attrs) ~= nil
+end
+
+local function getPartCF(obj)
+    if obj:IsA("BasePart") then
+        return obj.CFrame, obj.Position
+    elseif obj:IsA("Model") then
+        local p = obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")
+        if p then
+            return p.CFrame, p.Position
+        end
+    end
+end
+
+-- SCAN FUNCTION
+local function scanService(service)
+    for _, obj in ipairs(service:GetDescendants()) do
+        
+        -- REMOTES (VERY IMPORTANT FOR PS99)
+        if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") or obj:IsA("BindableEvent") then
+            table.insert(results.Remotes, {
+                name = obj.Name,
+                class = obj.ClassName,
+                path = obj:GetFullName()
+            })
+        end
+
+        -- MODELS
+        if obj:IsA("Model") then
+            local cf, pos = getPartCF(obj)
+            table.insert(results.Models, {
+                name = obj.Name,
+                path = obj:GetFullName(),
+                cframe = cf,
+                position = pos
+            })
+        end
+
+        -- PARTS
+        if obj:IsA("BasePart") then
+            table.insert(results.Parts, {
+                name = obj.Name,
+                path = obj:GetFullName(),
+                position = obj.Position
+            })
+        end
+
+        -- INTERACTABLES
+        if obj:FindFirstChildWhichIsA("ClickDetector") or obj:FindFirstChildWhichIsA("ProximityPrompt") then
+            local cf, pos = getPartCF(obj)
+            table.insert(results.Interactables, {
+                name = obj.Name,
+                path = obj:GetFullName(),
+                position = pos
+            })
+        end
+
+        -- ATTRIBUTES (PS99 USES THESE HEAVILY)
+        if hasAttributes(obj) then
+            table.insert(results.AttributeObjects, {
+                name = obj.Name,
+                class = obj.ClassName,
+                path = obj:GetFullName(),
+                attributes = obj:GetAttributes()
+            })
+        end
+    end
+end
+
+-- RUN SCANS
+for name, service in pairs(Services) do
+    print("Scanning:", name)
+    scanService(service)
+end
+
+print("")
+print("============= SCAN RESULTS =================")
+print("Models Found:        ", #results.Models)
+print("Parts Found:         ", #results.Parts)
+print("Interactables:       ", #results.Interactables)
+print("Remotes Found:       ", #results.Remotes)
+print("Attribute Objects:   ", #results.AttributeObjects)
+print("============================================")
+
+-- SAVE TO FILE
+if writefile then
+    local output = "=== PS99 FULL SCAN ===\n\n"
+
+    output ..= "== REMOTES ==\n"
+    for _, r in ipairs(results.Remotes) do
+        output ..= r.class .. " | " .. r.name .. "\n" .. r.path .. "\n\n"
+    end
+
+    output ..= "== INTERACTABLES ==\n"
+    for _, i in ipairs(results.Interactables) do
+        output ..= i.name .. "\n" .. i.path .. "\n"
+        if i.position then
+            output ..= "Pos: " .. tostring(i.position) .. "\n"
+        end
+        output ..= "\n"
+    end
+
+    output ..= "== ATTRIBUTE OBJECTS ==\n"
+    for _, a in ipairs(results.AttributeObjects) do
+        output ..= a.class .. " | " .. a.name .. "\n"
+        output ..= a.path .. "\n"
+        for k,v in pairs(a.attributes) do
+            output ..= "  " .. k .. " = " .. tostring(v) .. "\n"
+        end
+        output ..= "\n"
+    end
+
+    writefile("ps99_full_scan.txt", output)
+    print("✓ Saved scan to ps99_full_scan.txt")
+end
+
+print("")
+print("SCAN COMPLETE")
