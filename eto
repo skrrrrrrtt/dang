@@ -1,0 +1,255 @@
+-- ATM Cycle Teleporter for Driving Empire
+-- Press button to teleport to next ATM in sequence
+
+repeat wait() until game:IsLoaded()
+if game.PlaceId == 3351674303 then
+
+-- Services
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local CoreGui = game:GetService("CoreGui")
+local TweenService = game:GetService("TweenService")
+
+local LocalPlayer = Players.LocalPlayer
+
+-- Remove old GUI
+local old = CoreGui:FindFirstChild("ATMCycleGUI")
+if old then old:Destroy() end
+
+-- All 27 ATM Locations from your scan
+local ATMLocations = {
+    {name = "Zone #1", cframe = CFrame.new(-264.02, 15.52, -1730.65)},
+    {name = "Wall #2", cframe = CFrame.new(-260.92, 13.75, -1737.70)},
+    {name = "Effect #3", cframe = CFrame.new(-260.92, 13.37, -1737.69)},
+    {name = "CashPackPad #4", cframe = CFrame.new(-260.92, 13.37, -1737.69)},
+    {name = "CriminalATM #5", cframe = CFrame.new(-379.62, 14.71, -1814.52)},
+    {name = "Screen Money #6", cframe = CFrame.new(-823.44, 172.07, -1578.26)},
+    {name = "Money Board #7", cframe = CFrame.new(-823.52, 172.07, -1578.24)},
+    {name = "Neon Money #8", cframe = CFrame.new(-823.52, 172.07, -1578.24)},
+    {name = "Weekly Neon #9", cframe = CFrame.new(-890.09, 172.07, -1631.63)},
+    {name = "Weekly Money #10", cframe = CFrame.new(-890.11, 172.07, -1631.72)},
+    {name = "Weekly Screen #11", cframe = CFrame.new(-890.11, 172.07, -1631.72)},
+    {name = "CriminalATM #12", cframe = CFrame.new(-962.46, 23.56, -1731.39)},
+    {name = "CriminalATM #13", cframe = CFrame.new(-576.63, 23.48, -977.86)},
+    {name = "CriminalATM #14", cframe = CFrame.new(97.99, 23.69, -984.68)},
+    {name = "ATM #15", cframe = CFrame.new(-632.67, 25.00, -732.94)},
+    {name = "Position #16", cframe = CFrame.new(-632.26, 22.52, -731.95)},
+    {name = "CriminalATM #17", cframe = CFrame.new(-632.26, 22.52, -731.95)},
+    {name = "CriminalATM #18", cframe = CFrame.new(-632.26, 23.02, -731.95)},
+    {name = "Zone #19", cframe = CFrame.new(-629.71, 24.52, -720.30)},
+    {name = "CriminalATM #20", cframe = CFrame.new(404.01, 23.69, -978.59)},
+    {name = "CriminalATM #21", cframe = CFrame.new(-1202.28, 23.53, -1139.26)},
+    {name = "CriminalATM #22", cframe = CFrame.new(-1120.12, 23.54, -832.90)},
+    {name = "Zone #23", cframe = CFrame.new(-977.62, 25.01, -592.15)},
+    {name = "Position #24", cframe = CFrame.new(-975.27, 23.01, -580.47)},
+    {name = "CriminalATM #25", cframe = CFrame.new(-975.27, 23.01, -580.47)},
+    {name = "CriminalATM #26", cframe = CFrame.new(-975.27, 23.51, -580.47)},
+    {name = "ATM #27", cframe = CFrame.new(-974.87, 25.49, -579.47)},
+}
+
+-- Current ATM index
+local currentIndex = 1
+
+-- Functions
+function GetCurrentVehicle()
+    return LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") 
+        and LocalPlayer.Character.Humanoid.SeatPart 
+        and LocalPlayer.Character.Humanoid.SeatPart.Parent
+end
+
+function TP(cframe)
+    local vehicle = GetCurrentVehicle()
+    if vehicle then
+        vehicle:SetPrimaryPartCFrame(cframe)
+        return true
+    end
+    return false
+end
+
+function CharacterTP(cframe)
+    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        LocalPlayer.Character.HumanoidRootPart.CFrame = cframe
+        return true
+    end
+    return false
+end
+
+function TeleportToCurrentATM()
+    local atm = ATMLocations[currentIndex]
+    
+    -- Try vehicle first, then character
+    local success = TP(atm.cframe)
+    if not success then
+        success = CharacterTP(atm.cframe)
+    end
+    
+    if success then
+        print(string.format("✓ Teleported to ATM %d/%d: %s", currentIndex, #ATMLocations, atm.name))
+        return true
+    else
+        print("❌ Teleport failed!")
+        return false
+    end
+end
+
+function NextATM()
+    currentIndex = currentIndex + 1
+    if currentIndex > #ATMLocations then
+        currentIndex = 1
+        print("🔄 Cycled back to first ATM")
+    end
+end
+
+-- Create GUI
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "ATMCycleGUI"
+ScreenGui.Parent = CoreGui
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Parent = ScreenGui
+MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+MainFrame.BorderSizePixel = 0
+MainFrame.Position = UDim2.new(0.5, -150, 0.5, -75)
+MainFrame.Size = UDim2.new(0, 300, 0, 150)
+MainFrame.Active = true
+MainFrame.Draggable = true
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 10)
+UICorner.Parent = MainFrame
+
+local UIStroke = Instance.new("UIStroke")
+UIStroke.Color = Color3.fromRGB(246, 255, 79)
+UIStroke.Thickness = 2
+UIStroke.Parent = MainFrame
+
+-- Title
+local Title = Instance.new("TextLabel")
+Title.Name = "Title"
+Title.Parent = MainFrame
+Title.BackgroundTransparency = 1
+Title.Size = UDim2.new(1, 0, 0, 40)
+Title.Font = Enum.Font.GothamBlack
+Title.Text = "ATM CYCLE TELEPORTER"
+Title.TextColor3 = Color3.fromRGB(246, 255, 79)
+Title.TextSize = 16
+
+-- Status Label
+local StatusLabel = Instance.new("TextLabel")
+StatusLabel.Name = "StatusLabel"
+StatusLabel.Parent = MainFrame
+StatusLabel.BackgroundTransparency = 1
+StatusLabel.Position = UDim2.new(0, 10, 0, 45)
+StatusLabel.Size = UDim2.new(1, -20, 0, 30)
+StatusLabel.Font = Enum.Font.Gotham
+StatusLabel.Text = "Ready to teleport..."
+StatusLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+StatusLabel.TextSize = 12
+StatusLabel.TextWrapped = true
+
+-- Counter Label
+local CounterLabel = Instance.new("TextLabel")
+CounterLabel.Name = "CounterLabel"
+CounterLabel.Parent = MainFrame
+CounterLabel.BackgroundTransparency = 1
+CounterLabel.Position = UDim2.new(0, 0, 0, 70)
+CounterLabel.Size = UDim2.new(1, 0, 0, 25)
+CounterLabel.Font = Enum.Font.GothamBold
+CounterLabel.Text = string.format("ATM: %d / %d", currentIndex, #ATMLocations)
+CounterLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+CounterLabel.TextSize = 18
+
+-- TP Button
+local TPButton = Instance.new("TextButton")
+TPButton.Name = "TPButton"
+TPButton.Parent = MainFrame
+TPButton.BackgroundColor3 = Color3.fromRGB(246, 255, 79)
+TPButton.BorderSizePixel = 0
+TPButton.Position = UDim2.new(0.1, 0, 0, 100)
+TPButton.Size = UDim2.new(0.8, 0, 0, 40)
+TPButton.Font = Enum.Font.GothamBlack
+TPButton.Text = "TELEPORT TO NEXT ATM"
+TPButton.TextColor3 = Color3.fromRGB(0, 0, 0)
+TPButton.TextSize = 14
+
+local ButtonCorner = Instance.new("UICorner")
+ButtonCorner.CornerRadius = UDim.new(0, 8)
+ButtonCorner.Parent = TPButton
+
+-- Button functionality
+TPButton.MouseButton1Click:Connect(function()
+    -- Teleport to current ATM
+    local atm = ATMLocations[currentIndex]
+    StatusLabel.Text = string.format("Teleporting to: %s", atm.name)
+    
+    -- Visual feedback
+    TweenService:Create(TPButton, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(150, 255, 100)}):Play()
+    wait(0.1)
+    TweenService:Create(TPButton, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(246, 255, 79)}):Play()
+    
+    -- Teleport
+    if TeleportToCurrentATM() then
+        StatusLabel.Text = string.format("✓ At: %s", atm.name)
+        
+        -- Move to next ATM for next click
+        NextATM()
+        
+        -- Update counter
+        CounterLabel.Text = string.format("Next ATM: %d / %d", currentIndex, #ATMLocations)
+    else
+        StatusLabel.Text = "❌ Teleport failed! Get in a vehicle or spawn character."
+        StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+        wait(2)
+        StatusLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+        StatusLabel.Text = "Ready to try again..."
+    end
+end)
+
+-- Hover effects
+TPButton.MouseEnter:Connect(function()
+    TweenService:Create(TPButton, TweenInfo.new(0.2), {
+        Size = UDim2.new(0.85, 0, 0, 42),
+        Position = UDim2.new(0.075, 0, 0, 99)
+    }):Play()
+end)
+
+TPButton.MouseLeave:Connect(function()
+    TweenService:Create(TPButton, TweenInfo.new(0.2), {
+        Size = UDim2.new(0.8, 0, 0, 40),
+        Position = UDim2.new(0.1, 0, 0, 100)
+    }):Play()
+end)
+
+-- Close button
+local CloseButton = Instance.new("TextButton")
+CloseButton.Name = "CloseButton"
+CloseButton.Parent = MainFrame
+CloseButton.BackgroundColor3 = Color3.fromRGB(255, 60, 60)
+CloseButton.BorderSizePixel = 0
+CloseButton.Position = UDim2.new(1, -35, 0, 5)
+CloseButton.Size = UDim2.new(0, 30, 0, 30)
+CloseButton.Font = Enum.Font.GothamBlack
+CloseButton.Text = "X"
+CloseButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+CloseButton.TextSize = 16
+
+local CloseCorner = Instance.new("UICorner")
+CloseCorner.CornerRadius = UDim.new(0, 6)
+CloseCorner.Parent = CloseButton
+
+CloseButton.MouseButton1Click:Connect(function()
+    ScreenGui:Destroy()
+    print("ATM Cycle GUI closed")
+end)
+
+print("╔════════════════════════════════════════╗")
+print("║   ATM CYCLE TELEPORTER LOADED          ║")
+print("╠════════════════════════════════════════╣")
+print("║ Total ATMs: 27                         ║")
+print("║ Press button to cycle through ATMs     ║")
+print("║ Drag GUI to move it                    ║")
+print("╚════════════════════════════════════════╝")
+
+end
