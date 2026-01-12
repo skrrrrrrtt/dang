@@ -1,0 +1,165 @@
+-- PS99 FULL QUEUED SCANNER (CRASH-PROOF)
+
+local Services = {
+    Workspace = game:GetService("Workspace"),
+    ReplicatedStorage = game:GetService("ReplicatedStorage"),
+    Players = game:GetService("Players"),
+    Lighting = game:GetService("Lighting"),
+}
+
+-- PERFORMANCE SETTINGS
+local QUEUE_SIZE = 400     -- lower if weak PC
+local YIELD_TIME = 0.03
+
+local results = {
+    Remotes = {},
+    Interactables = {},
+    AttributeObjects = {},
+    Models = {}
+}
+
+print("==============================================")
+print("      PS99 SAFE QUEUED SCANNER (FIXED)        ")
+print("==============================================")
+
+-- ===================== UTILS =====================
+
+local function hasAttributes(obj)
+    local ok, attrs = pcall(function()
+        return obj:GetAttributes()
+    end)
+    return ok and attrs and next(attrs) ~= nil
+end
+
+local function getObjectPosition(obj)
+    if obj:IsA("BasePart") then
+        return obj.Position
+    end
+
+    if obj:IsA("Model") then
+        local p = obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")
+        if p then
+            return p.Position
+        end
+    end
+
+    return nil
+end
+
+-- ===================== QUEUE =====================
+
+local scanQueue = {}
+
+local function enqueue(service)
+    for _, obj in ipairs(service:GetDescendants()) do
+        scanQueue[#scanQueue + 1] = obj
+    end
+end
+
+for _, service in pairs(Services) do
+    enqueue(service)
+end
+
+print("Queued objects:", #scanQueue)
+print("Scanning in batches of", QUEUE_SIZE)
+
+-- ===================== SCAN =====================
+
+task.spawn(function()
+    local processed = 0
+
+    for i = 1, #scanQueue, QUEUE_SIZE do
+        for j = i, math.min(i + QUEUE_SIZE - 1, #scanQueue) do
+            local obj = scanQueue[j]
+
+            -- REMOTES (VERY IMPORTANT IN PS99)
+            if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") or obj:IsA("BindableEvent") then
+                results.Remotes[#results.Remotes + 1] = {
+                    name = obj.Name,
+                    class = obj.ClassName,
+                    path = obj:GetFullName()
+                }
+            end
+
+            -- INTERACTABLES (SAFE)
+            if obj:IsA("Model") or obj:IsA("BasePart") then
+                local ok1 = obj:FindFirstChildWhichIsA("ClickDetector", true)
+                local ok2 = obj:FindFirstChildWhichIsA("ProximityPrompt", true)
+
+                if ok1 or ok2 then
+                    results.Interactables[#results.Interactables + 1] = {
+                        name = obj.Name,
+                        path = obj:GetFullName(),
+                        position = getObjectPosition(obj)
+                    }
+                end
+            end
+
+            -- ATTRIBUTES (PS99 USES THESE A LOT)
+            if hasAttributes(obj) then
+                results.AttributeObjects[#results.AttributeObjects + 1] = {
+                    name = obj.Name,
+                    class = obj.ClassName,
+                    path = obj:GetFullName(),
+                    attributes = obj:GetAttributes()
+                }
+            end
+
+            -- MODELS ONLY (SAFE)
+            if obj:IsA("Model") then
+                results.Models[#results.Models + 1] = {
+                    name = obj.Name,
+                    path = obj:GetFullName(),
+                    position = getObjectPosition(obj)
+                }
+            end
+        end
+
+        processed = math.min(processed + QUEUE_SIZE, #scanQueue)
+        print(("Scanned %d / %d objects"):format(processed, #scanQueue))
+
+        task.wait(YIELD_TIME) -- prevents freeze/crash
+    end
+
+    -- ===================== DONE =====================
+
+    print("==============================================")
+    print("SCAN COMPLETE")
+    print("Remotes:        ", #results.Remotes)
+    print("Interactables:  ", #results.Interactables)
+    print("AttributeObjs:  ", #results.AttributeObjects)
+    print("Models:         ", #results.Models)
+    print("==============================================")
+
+    -- ===================== SAVE =====================
+
+    if writefile then
+        local out = "=== PS99 SAFE FULL SCAN ===\n\n"
+
+        out ..= "== REMOTES ==\n"
+        for _, r in ipairs(results.Remotes) do
+            out ..= r.class .. " | " .. r.name .. "\n" .. r.path .. "\n\n"
+        end
+
+        out ..= "== INTERACTABLES ==\n"
+        for _, i in ipairs(results.Interactables) do
+            out ..= i.name .. "\n" .. i.path .. "\n"
+            if i.position then
+                out ..= "Pos: " .. tostring(i.position) .. "\n"
+            end
+            out ..= "\n"
+        end
+
+        out ..= "== ATTRIBUTE OBJECTS ==\n"
+        for _, a in ipairs(results.AttributeObjects) do
+            out ..= a.class .. " | " .. a.name .. "\n" .. a.path .. "\n"
+            for k, v in pairs(a.attributes) do
+                out ..= "  " .. k .. " = " .. tostring(v) .. "\n"
+            end
+            out ..= "\n"
+        end
+
+        writefile("ps99_safe_scan.txt", out)
+        print("✓ Saved to ps99_safe_scan.txt")
+    end
+end)
