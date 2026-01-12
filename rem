@@ -1,0 +1,72 @@
+-- Script to find all Remotes and other objects in Roblox game
+-- This should be executed in a Roblox executor or Studio Command Bar
+
+local output = {}
+
+-- Function to recursively search through game
+local function searchGame(parent, indent)
+    indent = indent or ""
+    
+    for _, child in pairs(parent:GetChildren()) do
+        local info = indent .. child.ClassName .. " - " .. child:GetFullName()
+        
+        -- Highlight important objects
+        if child:IsA("RemoteEvent") then
+            info = "[REMOTE EVENT] " .. info
+            table.insert(output, info)
+        elseif child:IsA("RemoteFunction") then
+            info = "[REMOTE FUNCTION] " .. info
+            table.insert(output, info)
+        elseif child:IsA("BindableEvent") then
+            info = "[BINDABLE EVENT] " .. info
+            table.insert(output, info)
+        elseif child:IsA("BindableFunction") then
+            info = "[BINDABLE FUNCTION] " .. info
+            table.insert(output, info)
+        end
+        
+        -- Search descendants
+        if #child:GetChildren() > 0 then
+            searchGame(child, indent .. "  ")
+        end
+    end
+end
+
+-- Start search
+table.insert(output, "=== GAME HIERARCHY SCAN ===")
+table.insert(output, "Scan started at: " .. os.date())
+table.insert(output, "")
+
+-- Search main containers
+table.insert(output, "\n--- WORKSPACE ---")
+searchGame(game.Workspace)
+
+table.insert(output, "\n--- REPLICATED STORAGE ---")
+searchGame(game.ReplicatedStorage)
+
+table.insert(output, "\n--- REPLICATED FIRST ---")
+searchGame(game.ReplicatedFirst)
+
+table.insert(output, "\n--- PLAYERS ---")
+searchGame(game.Players)
+
+table.insert(output, "\n--- LIGHTING ---")
+searchGame(game.Lighting)
+
+table.insert(output, "\n--- STARTER GUI ---")
+searchGame(game.StarterGui)
+
+table.insert(output, "\n--- STARTER PACK ---")
+searchGame(game.StarterPack)
+
+table.insert(output, "\n--- STARTER PLAYER ---")
+searchGame(game.StarterPlayer)
+
+-- Save to file
+local filename = "game_remotes_" .. os.time() .. ".txt"
+local result = table.concat(output, "\n")
+
+-- For Roblox Studio
+writefile(filename, result)
+print("Saved to: " .. filename)
+print("Total lines: " .. #output)
