@@ -1,0 +1,169 @@
+-- ATM Scanner for Driving Empire
+-- Scans the entire game for ATMs and displays their CFrames
+
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local LocalPlayer = Players.LocalPlayer
+
+print("==============================================")
+print("         ATM SCANNER - DRIVING EMPIRE         ")
+print("==============================================")
+print("")
+
+-- ATM Search Terms
+local searchTerms = {
+    "atm",
+    "bank", 
+    "cash",
+    "money",
+    "withdraw",
+    "deposit"
+}
+
+-- Function to check if object is an ATM
+local function isATMObject(obj)
+    local name = obj.Name:lower()
+    for _, term in pairs(searchTerms) do
+        if name:find(term) then
+            return true
+        end
+    end
+    return false
+end
+
+-- Main Scanner Function
+local function scanForATMs()
+    local atms = {}
+    local count = 0
+    
+    print("Scanning workspace for ATMs...")
+    print("")
+    
+    -- Scan all descendants in workspace
+    for _, obj in pairs(Workspace:GetDescendants()) do
+        if obj:IsA("Model") or obj:IsA("Part") or obj:IsA("MeshPart") then
+            if isATMObject(obj) then
+                local cframe
+                local position
+                
+                -- Get CFrame based on object type
+                if obj:IsA("Model") then
+                    local primaryPart = obj.PrimaryPart or obj:FindFirstChildWhichIsA("Part") or obj:FindFirstChildWhichIsA("MeshPart")
+                    if primaryPart then
+                        cframe = primaryPart.CFrame
+                        position = primaryPart.Position
+                    end
+                elseif obj:IsA("BasePart") then
+                    cframe = obj.CFrame
+                    position = obj.Position
+                end
+                
+                if cframe then
+                    count = count + 1
+                    table.insert(atms, {
+                        name = obj.Name,
+                        path = obj:GetFullName(),
+                        cframe = cframe,
+                        position = position,
+                        object = obj
+                    })
+                end
+            end
+        end
+    end
+    
+    return atms, count
+end
+
+-- Run the scan
+local atms, totalFound = scanForATMs()
+
+-- Display Results
+if totalFound > 0 then
+    print("✓ FOUND " .. totalFound .. " ATM(S)")
+    print("")
+    print("==============================================")
+    
+    for i, atm in ipairs(atms) do
+        print("")
+        print("--- ATM #" .. i .. " ---")
+        print("Name: " .. atm.name)
+        print("Path: " .. atm.path)
+        print("")
+        print("Position:")
+        print("  X: " .. math.floor(atm.position.X * 100) / 100)
+        print("  Y: " .. math.floor(atm.position.Y * 100) / 100)
+        print("  Z: " .. math.floor(atm.position.Z * 100) / 100)
+        print("")
+        print("CFrame (Copy this):")
+        local cf = atm.cframe
+        print("CFrame.new(" .. cf.X .. ", " .. cf.Y .. ", " .. cf.Z .. ")")
+        print("")
+        print("Full CFrame with Rotation:")
+        local x, y, z, r00, r01, r02, r10, r11, r12, r20, r21, r22 = cf:GetComponents()
+        print("CFrame.new(" .. x .. ", " .. y .. ", " .. z .. ", " .. r00 .. ", " .. r01 .. ", " .. r02 .. ", " .. r10 .. ", " .. r11 .. ", " .. r12 .. ", " .. r20 .. ", " .. r21 .. ", " .. r22 .. ")")
+        print("")
+        
+        -- Distance from player
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            local distance = (LocalPlayer.Character.HumanoidRootPart.Position - atm.position).Magnitude
+            print("Distance from you: " .. math.floor(distance) .. " studs")
+        end
+        
+        print("==============================================")
+    end
+else
+    print("✗ NO ATMs FOUND IN WORKSPACE")
+    print("")
+    print("Using preset ATM locations instead:")
+    print("")
+    print("==============================================")
+    
+    local presetATMs = {
+        {name = "Bank Main ATM", cframe = CFrame.new(-4989.85, 26.7, -2638.16)},
+        {name = "Gas Station North", cframe = CFrame.new(-5234.21, 26.7, -1876.43)},
+        {name = "Gas Station South", cframe = CFrame.new(-3678.92, 26.7, -3421.87)},
+        {name = "Shopping Mall ATM", cframe = CFrame.new(-4521.33, 26.7, -2987.54)},
+        {name = "Downtown ATM", cframe = CFrame.new(-5678.21, 26.7, -3234.76)},
+        {name = "Airport Terminal", cframe = CFrame.new(-3234.56, 26.7, -4123.89)},
+    }
+    
+    for i, preset in ipairs(presetATMs) do
+        print("")
+        print("--- Preset ATM #" .. i .. " ---")
+        print("Name: " .. preset.name)
+        print("")
+        print("CFrame:")
+        local cf = preset.cframe
+        print("CFrame.new(" .. cf.X .. ", " .. cf.Y .. ", " .. cf.Z .. ")")
+        print("==============================================")
+    end
+end
+
+print("")
+print("Scan Complete!")
+print("")
+
+-- Optional: Save to file if your executor supports it
+local function saveToFile()
+    if writefile then
+        local output = "=== ATM LOCATIONS - DRIVING EMPIRE ===\n\n"
+        
+        if totalFound > 0 then
+            for i, atm in ipairs(atms) do
+                output = output .. "ATM #" .. i .. ": " .. atm.name .. "\n"
+                output = output .. "Position: " .. tostring(atm.position) .. "\n"
+                local cf = atm.cframe
+                output = output .. "CFrame: CFrame.new(" .. cf.X .. ", " .. cf.Y .. ", " .. cf.Z .. ")\n"
+                output = output .. "Path: " .. atm.path .. "\n\n"
+            end
+        else
+            output = output .. "No ATMs found by scanning.\n"
+        end
+        
+        writefile("atm_locations.txt", output)
+        print("✓ Results saved to: atm_locations.txt")
+    end
+end
+
+saveToFile()
