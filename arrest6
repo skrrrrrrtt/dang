@@ -1,0 +1,230 @@
+--// AUTO ARREST CRIMINAL (FINAL WINDUI FIX)
+repeat task.wait() until game:IsLoaded()
+
+if game.PlaceId ~= 3351674303 then
+    warn("Wrong game")
+    return
+end
+
+--// SERVICES
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+--// SETTINGS
+local Settings = {
+    Enabled = false,
+    OffsetY = -3,
+    UpdateRate = 0.12,
+    AutoSwitch = true,
+    SafeMode = true
+}
+
+--// STATS
+local Stats = {
+    Arrests = 0,
+    Target = "None",
+    Criminals = 0
+}
+
+--// UTILS
+local function getRoot(char)
+    return char and char:FindFirstChild("HumanoidRootPart")
+end
+
+local function isCriminal(plr)
+    if not plr.Team then return false end
+    local t = plr.Team.Name:lower()
+    return t:find("criminal") or t:find("wanted") or t:find("prisoner")
+end
+
+local function getNearestCriminal()
+    local myRoot = getRoot(LocalPlayer.Character)
+    if not myRoot then return nil end
+
+    local closest, dist = nil, math.huge
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character and getRoot(p.Character) and isCriminal(p) then
+            local d = (getRoot(p.Character).Position - myRoot.Position).Magnitude
+            if d < dist then
+                closest, dist = p, d
+            end
+        end
+    end
+    return closest
+end
+
+local function followTarget(target)
+    local myRoot = getRoot(LocalPlayer.Character)
+    local tRoot = target and target.Character and getRoot(target.Character)
+    if not myRoot or not tRoot then return end
+
+    if Settings.SafeMode then
+        myRoot.AssemblyLinearVelocity = Vector3.zero
+    end
+
+    myRoot.CFrame = tRoot.CFrame * CFrame.new(0, Settings.OffsetY, 0)
+end
+
+--// LOAD WINDUI
+local WindUI = loadstring(game:HttpGet(
+    "https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"
+))()
+
+--// WINDOW
+local Window = WindUI:CreateWindow({
+    Title = "Auto Arrest Criminal",
+    SubTitle = "Advanced",
+    Icon = "shield",
+    Folder = "AutoArrest",
+    Size = UDim2.fromOffset(600, 480),
+    Transparent = true,
+    Theme = "Dark"
+})
+
+Window:SetToggleKey(Enum.KeyCode.G)
+
+--// TABS (TITLE, NOT NAME)
+local MainTab = Window:Tab({
+    Title = "Auto Arrest",
+    Icon = "shield"
+})
+
+local SettingsTab = Window:Tab({
+    Title = "Settings",
+    Icon = "settings"
+})
+
+local StatsTab = Window:Tab({
+    Title = "Stats",
+    Icon = "bar-chart"
+})
+
+--// MAIN TAB
+MainTab:Toggle({
+    Title = "🚔 Enable Auto Arrest",
+    Default = false,
+    Callback = function(v)
+        Settings.Enabled = v
+        if not v then
+            Stats.Target = "None"
+        end
+
+        WindUI:Notify({
+            Title = "Auto Arrest",
+            Content = v and "Enabled" or "Disabled",
+            Duration = 3
+        })
+    end
+})
+
+MainTab:Toggle({
+    Title = "🧠 Auto Switch Target",
+    Default = true,
+    Callback = function(v)
+        Settings.AutoSwitch = v
+    end
+})
+
+MainTab:Toggle({
+    Title = "🛡 Safe Mode",
+    Default = true,
+    Callback = function(v)
+        Settings.SafeMode = v
+    end
+})
+
+--// SETTINGS TAB
+SettingsTab:Slider({
+    Title = "Height Offset",
+    Min = -10,
+    Max = 5,
+    Default = -3,
+    Callback = function(v)
+        Settings.OffsetY = v
+    end
+})
+
+SettingsTab:Slider({
+    Title = "Update Speed",
+    Min = 0.05,
+    Max = 0.3,
+    Default = 0.12,
+    Callback = function(v)
+        Settings.UpdateRate = v
+    end
+})
+
+--// STATS TAB (PARAGRAPHS, NOT LABELS)
+local ArrestsPara = StatsTab:Paragraph({
+    Title = "Total Arrests",
+    Content = "0"
+})
+
+local TargetPara = StatsTab:Paragraph({
+    Title = "Current Target",
+    Content = "None"
+})
+
+local CriminalsPara = StatsTab:Paragraph({
+    Title = "Criminals Online",
+    Content = "0"
+})
+
+task.spawn(function()
+    while task.wait(1) do
+        ArrestsPara:SetDesc(tostring(Stats.Arrests))
+        TargetPara:SetDesc(Stats.Target)
+        CriminalsPara:SetDesc(tostring(Stats.Criminals))
+    end
+end)
+
+--// MAIN LOOP
+task.spawn(function()
+    local currentTarget = nil
+
+    while task.wait(Settings.UpdateRate) do
+        if not Settings.Enabled then continue end
+
+        -- count criminals
+        local count = 0
+        for _, p in pairs(Players:GetPlayers()) do
+            if isCriminal(p) then
+                count += 1
+            end
+        end
+        Stats.Criminals = count
+
+        if not currentTarget or not currentTarget.Character then
+            currentTarget = getNearestCriminal()
+            if currentTarget then
+                Stats.Target = currentTarget.Name
+            end
+        end
+
+        if currentTarget then
+            if not isCriminal(currentTarget) then
+                Stats.Arrests += 1
+                currentTarget = nil
+                Stats.Target = "None"
+
+                if Settings.AutoSwitch then
+                    task.wait(0.4)
+                    currentTarget = getNearestCriminal()
+                    if currentTarget then
+                        Stats.Target = currentTarget.Name
+                    end
+                end
+            else
+                followTarget(currentTarget)
+            end
+        end
+    end
+end)
+
+WindUI:Notify({
+    Title = "Loaded",
+    Content = "Auto Arrest Ready",
+    Duration = 5
+})
+
+print("✅ AUTO ARREST (FINAL WINDUI) LOADED")
