@@ -1,0 +1,139 @@
+--=====================================================
+-- DRIVING EMPIRE FULL CLIENT SCANNER (MAX SAFE)
+-- Scans EVERYTHING POSSIBLE client-side
+-- Auto-saves logs to .txt
+-- Crash-safe, rate-limited
+--=====================================================
+
+--// CONFIG
+local LOG_FILE = "DrivingEmpire_ClientScan.txt"
+local MAX_LINES = 5000 -- safety cap
+
+--// SERVICES
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+--// LOG SYSTEM
+local logBuffer = {}
+local function log(...)
+    local msg = table.concat(
+        table.pack(...),
+        " | "
+    )
+
+    table.insert(logBuffer, os.date("[%X] ") .. msg)
+
+    if #logBuffer > MAX_LINES then
+        table.remove(logBuffer, 1)
+    end
+
+    writefile(LOG_FILE, table.concat(logBuffer, "\n"))
+end
+
+log("=== CLIENT SCANNER STARTED ===")
+
+--// SAFE HOOK
+local function safeHook(fn, callback)
+    local ok, old = pcall(function()
+        return hookfunction(fn, callback)
+    end)
+    return ok, old
+end
+
+--=====================================================
+-- REMOTE SCANNING
+--=====================================================
+local function hookRemote(obj)
+    if obj:IsA("RemoteEvent") then
+        safeHook(obj.FireServer, function(self, ...)
+            log("RemoteEvent:FireServer", self:GetFullName(), tostring(...))
+            return self.FireServer(self, ...)
+        end)
+
+    elseif obj:IsA("RemoteFunction") then
+        safeHook(obj.InvokeServer, function(self, ...)
+            log("RemoteFunction:InvokeServer", self:GetFullName(), tostring(...))
+            return self.InvokeServer(self, ...)
+        end)
+    end
+end
+
+-- scan all replicated remotes
+for _, v in pairs(ReplicatedStorage:GetDescendants()) do
+    pcall(hookRemote, v)
+end
+
+ReplicatedStorage.DescendantAdded:Connect(function(v)
+    task.wait(0.1)
+    pcall(hookRemote, v)
+end)
+
+log("Remote scan active")
+
+--=====================================================
+-- BINDABLE SCAN (client-side only)
+--=====================================================
+for _, v in pairs(game:GetDescendants()) do
+    if v:IsA("BindableEvent") then
+        v.Event:Connect(function(...)
+            log("BindableEvent Fired", v:GetFullName(), tostring(...))
+        end)
+    elseif v:IsA("BindableFunction") then
+        safeHook(v.Invoke, function(self, ...)
+            log("BindableFunction Invoke", self:GetFullName(), tostring(...))
+            return self.Invoke(self, ...)
+        end)
+    end
+end
+
+log("Bindable scan active")
+
+--=====================================================
+-- MOVEMENT / ARREST-RELATED SIGNALS
+--=====================================================
+local function hookCharacter(char)
+    local hum = char:WaitForChild("Humanoid", 5)
+    local hrp = char:WaitForChild("HumanoidRootPart", 5)
+    if not hum or not hrp then return end
+
+    -- MoveTo detection
+    safeHook(hum.MoveTo, function(self, pos)
+        log("Humanoid:MoveTo", tostring(pos))
+        return self.MoveTo(self, pos)
+    end)
+
+    -- CFrame changes (throttled)
+    hrp:GetPropertyChangedSignal("CFrame"):Connect(function()
+        log("HRP CFrame Changed")
+    end)
+end
+
+if LocalPlayer.Character then
+    hookCharacter(LocalPlayer.Character)
+end
+
+LocalPlayer.CharacterAdded:Connect(hookCharacter)
+
+log("Movement scan active")
+
+--=====================================================
+-- TASK / THREAD SPAWN SCAN
+--=====================================================
+safeHook(task.spawn, function(fn, ...)
+    log("task.spawn called", tostring(fn))
+    return task.spawn(fn, ...)
+end)
+
+safeHook(task.delay, function(t, fn, ...)
+    log("task.delay called", tostring(t))
+    return task.delay(t, fn, ...)
+end)
+
+log("Task scan active")
+
+--=====================================================
+-- FINAL
+--=====================================================
+log("=== SCANNER READY ===")
+log("Manually arrest an Outlaw now")
