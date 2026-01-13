@@ -1,0 +1,162 @@
+-- ================= CONFIG =================
+local CONFIG = {
+    AUTO_ROB = false,
+    DROP_OFF_TARGET = 20000,
+    ROB_DELAY = 0.2,
+}
+-- =========================================
+
+-- SERVICES
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local CollectionService = game:GetService("CollectionService")
+
+local player = Players.LocalPlayer
+local remotes = ReplicatedStorage:WaitForChild("Remotes")
+
+-- REMOTES
+local StartATM = remotes:WaitForChild("AttemptATMBustStart")
+local FinishATM = remotes:WaitForChild("AttemptATMBustComplete")
+
+-- FORMAT
+local function formatNumber(n)
+    return tostring(n):reverse():gsub("%d%d%d", "%1,"):reverse():gsub("^,", "")
+end
+
+-- 🔥 ADVANCED ROBBED MONEY DETECTION
+local function getRobbedAmount()
+    local char = player.Character
+    if not char then return 0 end
+
+    local head = char:FindFirstChild("Head")
+    if not head then return 0 end
+
+    local billboard = head:FindFirstChild("CharacterBillboard")
+    if not billboard then return 0 end
+
+    for _, v in ipairs(billboard:GetChildren()) do
+        if v:IsA("TextLabel") or v:IsA("TextBox") then
+            local txt = v.Text or v.ContentText
+            if txt and txt:find("$") then
+                local num = tonumber(txt:gsub("[^%d]", ""))
+                if num then
+                    return num
+                end
+            end
+        end
+    end
+
+    return 0
+end
+
+-- SAFE TELEPORT
+local function teleport(cf)
+    local char = player.Character
+    if char and char.PrimaryPart then
+        char.PrimaryPart.Velocity = Vector3.zero
+        char:PivotTo(cf + Vector3.new(0, 5, 0))
+    end
+end
+
+-- FIND ATM
+local function findATM()
+    for _, atm in pairs(CollectionService:GetTagged("CriminalATM")) do
+        if atm:GetAttribute("State") ~= "Busted" then
+            return atm
+        end
+    end
+end
+
+-- DROP OFF
+local function deliverMoney()
+    local drop = workspace.Game.Jobs.CriminalDropOffSpawners
+        :FindFirstChild("CriminalDropOffSpawnerPermanent")
+    if not drop then return end
+
+    teleport(drop.CFrame)
+    task.wait(0.8)
+
+    local char = player.Character
+    if char and char:FindFirstChild("Humanoid") then
+        char.Humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+    end
+
+    task.wait(2)
+end
+
+-- ROB ATM (FAST)
+local function robATM(atm)
+    teleport(atm.WorldPivot)
+    task.wait(0.25)
+
+    StartATM:InvokeServer(atm)
+    task.wait(2.3)
+    FinishATM:InvokeServer(atm)
+
+    task.wait(0.3)
+end
+
+-- ================= UI =================
+local gui = Instance.new("ScreenGui", player.PlayerGui)
+gui.ResetOnSpawn = false
+
+local frame = Instance.new("Frame", gui)
+frame.Size = UDim2.fromScale(0.25, 0.2)
+frame.Position = UDim2.fromScale(0.37, 0.4)
+frame.BackgroundColor3 = Color3.fromRGB(25,25,25)
+frame.BorderSizePixel = 0
+Instance.new("UICorner", frame).CornerRadius = UDim.new(0,12)
+
+local title = Instance.new("TextLabel", frame)
+title.Size = UDim2.fromScale(1,0.25)
+title.BackgroundTransparency = 1
+title.Text = "ATM Auto Rob"
+title.TextColor3 = Color3.new(1,1,1)
+title.Font = Enum.Font.GothamBold
+title.TextScaled = true
+
+statusLabel = Instance.new("TextLabel", frame)
+statusLabel.Position = UDim2.fromScale(0,0.3)
+statusLabel.Size = UDim2.fromScale(1,0.25)
+statusLabel.BackgroundTransparency = 1
+statusLabel.TextColor3 = Color3.fromRGB(0,255,120)
+statusLabel.Font = Enum.Font.Gotham
+statusLabel.TextScaled = true
+
+local toggle = Instance.new("TextButton", frame)
+toggle.Position = UDim2.fromScale(0.1,0.65)
+toggle.Size = UDim2.fromScale(0.8,0.25)
+toggle.Text = "START"
+toggle.Font = Enum.Font.GothamBold
+toggle.TextScaled = true
+toggle.BackgroundColor3 = Color3.fromRGB(60,180,75)
+toggle.TextColor3 = Color3.new(1,1,1)
+Instance.new("UICorner", toggle)
+
+toggle.MouseButton1Click:Connect(function()
+    CONFIG.AUTO_ROB = not CONFIG.AUTO_ROB
+    toggle.Text = CONFIG.AUTO_ROB and "STOP" or "START"
+    toggle.BackgroundColor3 = CONFIG.AUTO_ROB
+        and Color3.fromRGB(200,70,70)
+        or Color3.fromRGB(60,180,75)
+end)
+
+-- 🔁 MAIN LOOP (ADVANCED)
+task.spawn(function()
+    while task.wait(CONFIG.ROB_DELAY) do
+        if CONFIG.AUTO_ROB then
+            local robbed = getRobbedAmount()
+            statusLabel.Text = "Robbed: $" .. formatNumber(robbed)
+
+            if robbed >= CONFIG.DROP_OFF_TARGET then
+                statusLabel.Text = "Delivering..."
+                deliverMoney()
+            else
+                local atm = findATM()
+                if atm then
+                    robATM(atm)
+                end
+            end
+        end
+    end
+end)
