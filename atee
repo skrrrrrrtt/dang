@@ -1,0 +1,689 @@
+-- ╔══════════════════════════════════════════════════════════════╗
+-- ║           ADVANCED AUTO ROB ATM - DRIVING EMPIRE             ║
+-- ║              Based on original script functions              ║
+-- ╚══════════════════════════════════════════════════════════════╝
+
+repeat wait() until game:IsLoaded()
+if game.PlaceId ~= 3351674303 then
+    warn("This script is for Driving Empire only!")
+    return
+end
+
+-- ╔══════════════════════════════════════════════════════════════╗
+-- ║                    SERVICES & VARIABLES                      ║
+-- ╚══════════════════════════════════════════════════════════════╝
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+local HttpService = game:GetService("HttpService")
+local CollectionService = game:GetService("CollectionService")
+
+local LocalPlayer = Players.LocalPlayer
+local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+
+-- Settings
+_G.AutoRobSettings = {
+    Enabled = false,
+    TargetAmount = 50000,
+    AutoDeliver = true,
+    DeliverOnTarget = true,
+    UseNilATMs = true,
+    TeleportSpeed = 0.2,
+    RobberyWaitTime = 3,
+    MaxNoATMRetries = 5,
+    NotifySuccess = true,
+    NotifyDelivery = true,
+}
+
+-- Stats
+local Stats = {
+    TotalRobbed = 0,
+    TotalDelivered = 0,
+    ATMsRobbed = 0,
+    SessionStart = tick(),
+    LastRobbery = 0,
+    FailedDeliveries = 0,
+    NoATMCount = 0,
+}
+
+local isAutoRobActive = false
+local isDeliveryInProgress = false
+
+-- ╔══════════════════════════════════════════════════════════════╗
+-- ║                    UTILITY FUNCTIONS                         ║
+-- ╚══════════════════════════════════════════════════════════════╝
+
+local function formatNumber(num)
+    local formatted = tostring(num)
+    local result = ""
+    local count = 0
+    for i = #formatted, 1, -1 do
+        result = formatted:sub(i, i) .. result
+        count = count + 1
+        if count % 3 == 0 and i > 1 then
+            result = "," .. result
+        end
+    end
+    return result
+end
+
+local function safeTP(targetCFrame)
+    if Character and Character.PrimaryPart then
+        Character.PrimaryPart.Velocity = Vector3.zero
+        Character:PivotTo(targetCFrame)
+        LocalPlayer.ReplicationFocus = nil
+    end
+end
+
+local function getRobbedAmount()
+    local success, amount = pcall(function()
+        local head = Character:FindFirstChild("Head")
+        if not head then return 0 end
+        
+        local billboard = head:FindFirstChild("CharacterBillboard")
+        if not billboard then return 0 end
+        
+        local children = billboard:GetChildren()
+        if #children < 4 then return 0 end
+        
+        local textLabel = children[4]
+        if not textLabel or not textLabel.ContentText then return 0 end
+        
+        local text = textLabel.ContentText
+        local cleanText = text:gsub("[$,]", "")
+        return tonumber(cleanText) or 0
+    end)
+    
+    return success and amount or 0
+end
+
+local function checkDropOffEnabled()
+    local success, enabled = pcall(function()
+        local dropOffPoint = Workspace.Game.Jobs.CriminalDropOffSpawners
+            .CriminalDropOffSpawnerPermanent.CriminalDropOffPoint.Zone
+            .BillboardAttachment.Billboard
+        
+        return dropOffPoint.Enabled
+    end)
+    
+    return success and enabled or false
+end
+
+-- ╔══════════════════════════════════════════════════════════════╗
+-- ║                    DELIVERY SYSTEM                           ║
+-- ╚══════════════════════════════════════════════════════════════╝
+
+local function forceDeliverRobbedAmount()
+    print("[AutoRob] === Starting Force Delivery ===")
+    
+    isDeliveryInProgress = true
+    
+    local dropOffSpawners = Workspace.Game.Jobs.CriminalDropOffSpawners
+    if not dropOffSpawners or not dropOffSpawners.CriminalDropOffSpawnerPermanent then
+        warn("[AutoRob] Drop-off location not found!")
+        isDeliveryInProgress = false
+        return false, 0
+    end
+    
+    local robbedAmount = getRobbedAmount()
+    print(string.format("[AutoRob] Current robbed amount: %s", formatNumber(robbedAmount)))
+    
+    if robbedAmount <= 0 then
+        print("[AutoRob] No money to deliver")
+        isDeliveryInProgress = false
+        return false, 0
+    end
+    
+    -- Clean money bags from backpack
+    print("[AutoRob] Cleaning money bags from backpack...")
+    for _, bag in pairs(CollectionService:GetTagged("CriminalMoneyBagTool")) do
+        pcall(function()
+            bag:Destroy()
+        end)
+        task.wait(0.1)
+    end
+    
+    local maxAttempts = 5
+    local deliverySuccess = false
+    local totalDelivered = 0
+    
+    for attempt = 1, maxAttempts do
+        if not isAutoRobActive and not _G.AutoRobSettings.Enabled then
+            break
+        end
+        
+        print(string.format("[AutoRob] Delivery attempt %d/%d", attempt, maxAttempts))
+        
+        local currentAmount = getRobbedAmount()
+        if currentAmount == 0 then
+            deliverySuccess = true
+            print("[AutoRob] ✓ All money delivered!")
+            break
+        end
+        
+        -- Teleport to drop-off point
+        local teleportStart = tick()
+        repeat
+            task.wait()
+            safeTP(dropOffSpawners.CriminalDropOffSpawnerPermanent.CFrame + Vector3.new(0, 5, 0))
+        until tick() - teleportStart > 1.5
+        
+        -- Wait for delivery processing
+        print("[AutoRob] Waiting for delivery processing...")
+        local checkStart = tick()
+        local lastCheckAmount = currentAmount
+        
+        repeat
+            task.wait(0.3)
+            safeTP(dropOffSpawners.CriminalDropOffSpawnerPermanent.CFrame + Vector3.new(0, 5, 0))
+            
+            currentAmount = getRobbedAmount()
+            
+            if currentAmount < lastCheckAmount then
+                local delivered = lastCheckAmount - currentAmount
+                totalDelivered = totalDelivered + delivered
+                print(string.format("[AutoRob] ✓ Delivered: %s", formatNumber(delivered)))
+                lastCheckAmount = currentAmount
+            end
+            
+            if currentAmount == 0 then
+                deliverySuccess = true
+                print("[AutoRob] ✓ Delivery successful!")
+                break
+            end
+        until tick() - checkStart > 5
+        
+        if deliverySuccess then break end
+        
+        task.wait(1)
+    end
+    
+    if deliverySuccess then
+        Stats.TotalDelivered = Stats.TotalDelivered + totalDelivered
+        print(string.format("[AutoRob] ✓ Force delivery completed. Delivered: %s", formatNumber(totalDelivered)))
+    else
+        Stats.FailedDeliveries = Stats.FailedDeliveries + 1
+        warn(string.format("[AutoRob] ✗ Force delivery failed after %d attempts", maxAttempts))
+    end
+    
+    isDeliveryInProgress = false
+    return deliverySuccess, totalDelivered
+end
+
+-- ╔══════════════════════════════════════════════════════════════╗
+-- ║                    ATM ROBBERY SYSTEM                        ║
+-- ╚══════════════════════════════════════════════════════════════╝
+
+local function robSingleATM(atm, atmType)
+    if not isAutoRobActive then return false end
+    
+    local atmTypeName = atmType == "tagged" and "Tagged ATM" or "Nil ATM"
+    print(string.format("[AutoRob] Starting robbery: %s", atmTypeName))
+    
+    -- Teleport to ATM
+    local teleportTime = atmType == "tagged" and 1 or 0.2
+    local teleportStart = tick()
+    repeat
+        task.wait()
+        safeTP(atm.WorldPivot + Vector3.new(0, 5, 0))
+    until tick() - teleportStart > teleportTime or not isAutoRobActive
+    
+    if not isAutoRobActive then return false end
+    
+    -- Start ATM bust
+    local beforeAmount = getRobbedAmount()
+    print(string.format("[AutoRob] Before robbery: %s", formatNumber(beforeAmount)))
+    
+    ReplicatedStorage.Remotes.AttemptATMBustStart:InvokeServer(atm)
+    
+    -- Wait for progress
+    local progressStart = tick()
+    repeat
+        task.wait()
+        safeTP(atm.WorldPivot + Vector3.new(0, 5, 0))
+    until tick() - progressStart > 2.5 or not isAutoRobActive
+    
+    if not isAutoRobActive then return false end
+    
+    -- Complete ATM bust
+    ReplicatedStorage.Remotes.AttemptATMBustComplete:InvokeServer(atm)
+    print("[AutoRob] ATM bust completed, waiting for cooldown...")
+    
+    -- Wait for cooldown
+    local cooldownStart = tick()
+    repeat
+        task.wait()
+        safeTP(atm.WorldPivot + Vector3.new(0, 5, 0))
+    until tick() - cooldownStart > 3 or 
+          (Character and Character:GetAttribute("ATMBustDebounce")) or 
+          not isAutoRobActive
+    
+    -- Wait for debounce to clear
+    repeat
+        task.wait()
+        safeTP(atm.WorldPivot + Vector3.new(0, 5, 0))
+    until tick() - cooldownStart > 3 or 
+          not (Character and Character:GetAttribute("ATMBustDebounce")) or
+          not isAutoRobActive
+    
+    task.wait(0.5)
+    
+    -- Check robbery success
+    local afterAmount = getRobbedAmount()
+    local gained = afterAmount - beforeAmount
+    
+    if gained > 0 then
+        Stats.ATMsRobbed = Stats.ATMsRobbed + 1
+        Stats.TotalRobbed = Stats.TotalRobbed + gained
+        Stats.LastRobbery = tick()
+        Stats.NoATMCount = 0
+        
+        print(string.format("[AutoRob] ✓ Robbery successful! Gained: +%s", formatNumber(gained)))
+        
+        -- Check if we should deliver
+        if _G.AutoRobSettings.DeliverOnTarget and afterAmount >= _G.AutoRobSettings.TargetAmount then
+            local dropOffEnabled = checkDropOffEnabled()
+            
+            if dropOffEnabled then
+                print(string.format("[AutoRob] Target reached: %s >= %s", 
+                    formatNumber(afterAmount), 
+                    formatNumber(_G.AutoRobSettings.TargetAmount)))
+                
+                local success, delivered = forceDeliverRobbedAmount()
+                
+                if success and _G.AutoRobSettings.NotifyDelivery then
+                    print(string.format("[AutoRob] ✓ Delivery completed: %s", formatNumber(delivered)))
+                end
+                
+                return true
+            end
+        end
+        
+        return false
+    else
+        print("[AutoRob] ⚠ Robbery failed or no money gained")
+        return false
+    end
+end
+
+local function findAndRobATMs()
+    print("[AutoRob] === Searching for ATMs ===")
+    
+    local foundCount = 0
+    local deliveryTriggered = false
+    
+    -- Rob tagged ATMs first
+    local taggedATMs = CollectionService:GetTagged("CriminalATM")
+    print(string.format("[AutoRob] Found %d tagged ATMs", #taggedATMs))
+    
+    for _, atm in pairs(taggedATMs) do
+        if not isAutoRobActive then break end
+        
+        if atm:GetAttribute("State") ~= "Busted" then
+            foundCount = foundCount + 1
+            deliveryTriggered = robSingleATM(atm, "tagged")
+            if deliveryTriggered then break end
+        end
+    end
+    
+    -- Rob nil ATMs if enabled and no delivery triggered
+    if _G.AutoRobSettings.UseNilATMs and not deliveryTriggered and isAutoRobActive then
+        local nilATMs = {}
+        for _, obj in pairs(getnilinstances()) do
+            if obj.Name == "CriminalATM" and obj:GetAttribute("State") ~= "Busted" then
+                table.insert(nilATMs, obj)
+            end
+        end
+        
+        print(string.format("[AutoRob] Found %d nil ATMs", #nilATMs))
+        
+        for _, atm in pairs(nilATMs) do
+            if not isAutoRobActive then break end
+            
+            foundCount = foundCount + 1
+            deliveryTriggered = robSingleATM(atm, "nil")
+            if deliveryTriggered then break end
+        end
+    end
+    
+    -- Handle no ATMs found
+    if foundCount == 0 then
+        Stats.NoATMCount = Stats.NoATMCount + 1
+        print(string.format("[AutoRob] No ATMs found. Count: %d/%d", 
+            Stats.NoATMCount, _G.AutoRobSettings.MaxNoATMRetries))
+        
+        if Stats.NoATMCount >= _G.AutoRobSettings.MaxNoATMRetries then
+            print("[AutoRob] Max retries reached, searching spawners...")
+            
+            -- Reset ATM loader
+            getfenv().atmloadercooldown = false
+            LocalPlayer.ReplicationFocus = nil
+            Stats.NoATMCount = 0
+            
+            -- Teleport to spawners to load ATMs
+            local spawnersFolder = Workspace.Game.Jobs.CriminalATMSpawners
+            if spawnersFolder then
+                local spawners = spawnersFolder:GetChildren()
+                print(string.format("[AutoRob] Teleporting to %d spawners", #spawners))
+                
+                for i, spawner in ipairs(spawners) do
+                    if not isAutoRobActive then break end
+                    
+                    safeTP(spawner:GetPivot() + Vector3.new(0, 5, 0))
+                    print(string.format("[AutoRob] Spawner %d/%d", i, #spawners))
+                    
+                    task.wait(0.5)
+                    LocalPlayer.ReplicationFocus = nil
+                    
+                    -- Check if ATMs appeared
+                    if #CollectionService:GetTagged("CriminalATM") > 0 then
+                        print("[AutoRob] ATMs found after spawner teleport!")
+                        Stats.NoATMCount = 0
+                        break
+                    end
+                end
+            end
+        end
+    else
+        Stats.NoATMCount = 0
+    end
+end
+
+-- ╔══════════════════════════════════════════════════════════════╗
+-- ║                    UI INTERFACE                              ║
+-- ╚══════════════════════════════════════════════════════════════╝
+
+print("Loading WindUI...")
+
+local Fluent
+local uiLoaded = false
+
+local success, result = pcall(function()
+    return loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
+end)
+
+if success and result then
+    Fluent = result
+    uiLoaded = true
+    print("✓ WindUI loaded!")
+else
+    warn("Failed to load WindUI:", result)
+    print("Attempting Fluent fallback...")
+    
+    success, result = pcall(function()
+        return loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+    end)
+    
+    if success and result then
+        Fluent = result
+        uiLoaded = true
+        print("✓ Fluent UI loaded!")
+    else
+        error("Failed to load UI library!")
+        return
+    end
+end
+
+local Window = Fluent:CreateWindow({
+    Title = "Auto Rob ATM - Driving Empire",
+    SubTitle = "Advanced ATM Robbery System",
+    TabWidth = 160,
+    Size = UDim2.fromOffset(580, 460),
+    Acrylic = true,
+    Theme = "Darker",
+    MinimizeKey = Enum.KeyCode.LeftControl
+})
+
+local Tabs = {
+    Main = Window:AddTab({ Title = "Auto Rob", Icon = "dollar-sign" }),
+    Settings = Window:AddTab({ Title = "Settings", Icon = "settings" }),
+    Stats = Window:AddTab({ Title = "Statistics", Icon = "bar-chart-2" }),
+}
+
+-- ═══════════════════ MAIN TAB ═══════════════════
+
+Tabs.Main:AddParagraph({
+    Title = "Auto Rob ATM",
+    Content = "Automatically robs ATMs and delivers money. Configure target amount and delivery settings below."
+})
+
+local AutoRobToggle = Tabs.Main:AddToggle("AutoRob", {
+    Title = "Enable Auto Rob",
+    Description = "Start automatic ATM robbery",
+    Default = false
+})
+
+AutoRobToggle:OnChanged(function(Value)
+    _G.AutoRobSettings.Enabled = Value
+    isAutoRobActive = Value
+    
+    if Value then
+        Fluent:Notify({
+            Title = "Auto Rob Started",
+            Content = "Searching for ATMs...",
+            Duration = 3
+        })
+        
+        -- Start auto rob loop
+        spawn(function()
+            while isAutoRobActive and _G.AutoRobSettings.Enabled do
+                pcall(function()
+                    findAndRobATMs()
+                end)
+                task.wait(0.5)
+            end
+        end)
+    else
+        Fluent:Notify({
+            Title = "Auto Rob Stopped",
+            Content = "ATM robbery disabled",
+            Duration = 3
+        })
+    end
+end)
+
+Tabs.Main:AddButton({
+    Title = "Force Deliver Now",
+    Description = "Immediately deliver all robbed money",
+    Callback = function()
+        local amount = getRobbedAmount()
+        if amount > 0 then
+            Fluent:Notify({
+                Title = "Delivering",
+                Content = string.format("Delivering %s...", formatNumber(amount)),
+                Duration = 3
+            })
+            
+            local success, delivered = forceDeliverRobbedAmount()
+            
+            if success then
+                Fluent:Notify({
+                    Title = "Delivery Success",
+                    Content = string.format("Delivered: %s", formatNumber(delivered)),
+                    Duration = 5
+                })
+            else
+                Fluent:Notify({
+                    Title = "Delivery Failed",
+                    Content = "Unable to deliver money",
+                    Duration = 5
+                })
+            end
+        else
+            Fluent:Notify({
+                Title = "No Money",
+                Content = "You have no money to deliver!",
+                Duration = 3
+            })
+        end
+    end
+})
+
+Tabs.Main:AddButton({
+    Title = "Check Current Amount",
+    Description = "Display currently robbed amount",
+    Callback = function()
+        local amount = getRobbedAmount()
+        Fluent:Notify({
+            Title = "Current Amount",
+            Content = string.format("Robbed: %s", formatNumber(amount)),
+            Duration = 4
+        })
+    end
+})
+
+-- ═══════════════════ SETTINGS TAB ═══════════════════
+
+Tabs.Settings:AddSlider("TargetAmount", {
+    Title = "Target Amount",
+    Description = "Amount to rob before auto-delivery",
+    Default = 50000,
+    Min = 1000,
+    Max = 500000,
+    Rounding = 1000,
+    Callback = function(Value)
+        _G.AutoRobSettings.TargetAmount = Value
+    end
+})
+
+Tabs.Settings:AddToggle("AutoDeliver", {
+    Title = "Auto Deliver",
+    Description = "Automatically deliver when target reached",
+    Default = true,
+    Callback = function(Value)
+        _G.AutoRobSettings.AutoDeliver = Value
+        _G.AutoRobSettings.DeliverOnTarget = Value
+    end
+})
+
+Tabs.Settings:AddToggle("UseNilATMs", {
+    Title = "Use Nil ATMs",
+    Description = "Also rob nil instance ATMs",
+    Default = true,
+    Callback = function(Value)
+        _G.AutoRobSettings.UseNilATMs = Value
+    end
+})
+
+Tabs.Settings:AddSlider("RobberyWaitTime", {
+    Title = "Robbery Wait Time",
+    Description = "Wait time during robbery (seconds)",
+    Default = 3,
+    Min = 1,
+    Max = 10,
+    Rounding = 1,
+    Callback = function(Value)
+        _G.AutoRobSettings.RobberyWaitTime = Value
+    end
+})
+
+Tabs.Settings:AddSlider("MaxRetries", {
+    Title = "Max No-ATM Retries",
+    Description = "Retries before spawner search",
+    Default = 5,
+    Min = 1,
+    Max = 20,
+    Rounding = 1,
+    Callback = function(Value)
+        _G.AutoRobSettings.MaxNoATMRetries = Value
+    end
+})
+
+Tabs.Settings:AddToggle("NotifySuccess", {
+    Title = "Notify on Success",
+    Description = "Show notification after successful robbery",
+    Default = true,
+    Callback = function(Value)
+        _G.AutoRobSettings.NotifySuccess = Value
+    end
+})
+
+-- ═══════════════════ STATS TAB ═══════════════════
+
+local TotalRobbedPara = Tabs.Stats:AddParagraph({
+    Title = "Total Robbed",
+    Content = "$0"
+})
+
+local TotalDeliveredPara = Tabs.Stats:AddParagraph({
+    Title = "Total Delivered",
+    Content = "$0"
+})
+
+local ATMsRobbedPara = Tabs.Stats:AddParagraph({
+    Title = "ATMs Robbed",
+    Content = "0 ATMs"
+})
+
+local SessionTimePara = Tabs.Stats:AddParagraph({
+    Title = "Session Time",
+    Content = "0 minutes"
+})
+
+local CurrentAmountPara = Tabs.Stats:AddParagraph({
+    Title = "Current Amount",
+    Content = "$0"
+})
+
+Tabs.Stats:AddButton({
+    Title = "Reset Statistics",
+    Description = "Reset all session statistics",
+    Callback = function()
+        Stats.TotalRobbed = 0
+        Stats.TotalDelivered = 0
+        Stats.ATMsRobbed = 0
+        Stats.SessionStart = tick()
+        Stats.FailedDeliveries = 0
+        
+        Fluent:Notify({
+            Title = "Stats Reset",
+            Content = "All statistics have been reset",
+            Duration = 3
+        })
+    end
+})
+
+-- Update stats display
+spawn(function()
+    while true do
+        wait(1)
+        
+        TotalRobbedPara:SetDesc(string.format("$%s", formatNumber(Stats.TotalRobbed)))
+        TotalDeliveredPara:SetDesc(string.format("$%s", formatNumber(Stats.TotalDelivered)))
+        ATMsRobbedPara:SetDesc(string.format("%d ATMs robbed", Stats.ATMsRobbed))
+        
+        local sessionTime = (tick() - Stats.SessionStart) / 60
+        SessionTimePara:SetDesc(string.format("%.1f minutes", sessionTime))
+        
+        local currentAmount = getRobbedAmount()
+        CurrentAmountPara:SetDesc(string.format("$%s", formatNumber(currentAmount)))
+    end
+end)
+
+-- ╔══════════════════════════════════════════════════════════════╗
+-- ║                    STARTUP                                   ║
+-- ╚══════════════════════════════════════════════════════════════╝
+
+-- Update character reference
+LocalPlayer.CharacterAdded:Connect(function(char)
+    Character = char
+end)
+
+Fluent:Notify({
+    Title = "Auto Rob ATM Loaded",
+    Content = "Ready to rob ATMs! Enable in Main tab.",
+    Duration = 5
+})
+
+print("╔════════════════════════════════════════╗")
+print("║   AUTO ROB ATM LOADED SUCCESSFULLY     ║")
+print("╠════════════════════════════════════════╣")
+print("║ Features:                              ║")
+print("║ • Auto find & rob ATMs                 ║")
+print("║ • Auto delivery system                 ║")
+print("║ • Nil ATM support                      ║")
+print("║ • Smart spawner detection              ║")
+print("║ • Advanced stats tracking              ║")
+print("╚════════════════════════════════════════╝")
