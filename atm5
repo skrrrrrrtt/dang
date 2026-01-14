@@ -1,0 +1,1357 @@
+-- ╔══════════════════════════════════════════════════════════════╗
+-- ║     ULTIMATE AUTO ROB ATM - ADVANCED EDITION V2.0            ║
+-- ║          Full Automation with Auto Cashout                   ║
+-- ╚══════════════════════════════════════════════════════════════╝
+
+repeat wait() until game:IsLoaded()
+if game.PlaceId ~= 3351674303 then
+    warn("This script is for Driving Empire only!")
+    return
+end
+
+print("╔════════════════════════════════════════════════════════════╗")
+print("║   ADVANCED AUTO ROB ATM V2.0 - LOADING...                 ║")
+print("╚════════════════════════════════════════════════════════════╝")
+
+-- ╔══════════════════════════════════════════════════════════════╗
+-- ║                    SERVICES & VARIABLES                      ║
+-- ╚══════════════════════════════════════════════════════════════╝
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+local CollectionService = game:GetService("CollectionService")
+local RunService = game:GetService("RunService")
+
+local LocalPlayer = Players.LocalPlayer
+local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+
+-- Advanced Settings
+_G.AutoRobSettings = {
+    -- Main Features
+    Enabled = false,
+    TargetAmount = 50000,
+    AutoDeliver = true,
+    AutoCashout = true,
+    
+    -- ATM Settings
+    UseNilATMs = true,
+    PrioritizeClosestATM = true,
+    SkipBustedATMs = true,
+    MaxNoATMRetries = 5,
+    
+    -- Safety & Performance
+    SafeMode = true,
+    AntiKick = true,
+    TeleportSpeed = 0.3,
+    WaitAfterRobbery = 0.5,
+    WaitAfterDelivery = 2,
+    WaitAfterCashout = 3,
+    RetryDelivery = true,
+    MaxDeliveryRetries = 5,
+    
+    -- Advanced Features
+    AutoRespawn = false,
+    NotifyMilestones = true,
+    DetailedLogs = true,
+    SmartATMSearch = true,
+}
+
+-- Enhanced Stats Tracking
+local Stats = {
+    -- Money Stats
+    TotalRobbed = 0,
+    TotalDelivered = 0,
+    TotalCashedOut = 0,
+    SessionProfit = 0,
+    
+    -- Activity Stats
+    ATMsRobbed = 0,
+    SuccessfulDeliveries = 0,
+    FailedDeliveries = 0,
+    SuccessfulCashouts = 0,
+    FailedCashouts = 0,
+    
+    -- Performance Stats
+    SessionStart = tick(),
+    LastRobbery = 0,
+    LastDelivery = 0,
+    LastCashout = 0,
+    NoATMCount = 0,
+    TotalCycles = 0,
+    
+    -- Rate Stats
+    RobberiesPerMinute = 0,
+    AverageRobberyAmount = 0,
+    ProfitPerHour = 0,
+}
+
+-- Important Locations
+local Locations = {
+    CashoutPoint = CFrame.new(
+        -2537.99023, 14.5917444, 4027.99585, 
+        0.313947797, -6.65701592e-08, 0.949440241, 
+        2.16352465e-08, 1, 6.29611137e-08, 
+        -0.949440241, 7.74869224e-10, 0.313947797
+    ),
+}
+
+-- State Variables
+local isAutoRobActive = false
+local isDeliveryInProgress = false
+local isCashingOut = false
+local currentActivity = "Idle"
+local lastATMPosition = nil
+
+-- ╔══════════════════════════════════════════════════════════════╗
+-- ║                    UTILITY FUNCTIONS                         ║
+-- ╚══════════════════════════════════════════════════════════════╝
+
+local function formatNumber(num)
+    if num >= 1000000 then
+        return string.format("%.2fM", num / 1000000)
+    elseif num >= 1000 then
+        return string.format("%.2fK", num / 1000)
+    end
+    
+    local formatted = tostring(math.floor(num))
+    local result = ""
+    local count = 0
+    for i = #formatted, 1, -1 do
+        result = formatted:sub(i, i) .. result
+        count = count + 1
+        if count % 3 == 0 and i > 1 then
+            result = "," .. result
+        end
+    end
+    return result
+end
+
+local function formatTime(seconds)
+    local hours = math.floor(seconds / 3600)
+    local minutes = math.floor((seconds % 3600) / 60)
+    local secs = math.floor(seconds % 60)
+    
+    if hours > 0 then
+        return string.format("%dh %dm %ds", hours, minutes, secs)
+    elseif minutes > 0 then
+        return string.format("%dm %ds", minutes, secs)
+    else
+        return string.format("%ds", secs)
+    end
+end
+
+local function safeTP(targetCFrame)
+    if Character and Character.PrimaryPart then
+        Character.PrimaryPart.Velocity = Vector3.zero
+        Character:PivotTo(targetCFrame)
+        LocalPlayer.ReplicationFocus = nil
+    end
+end
+
+local function smoothTP(targetCFrame, duration)
+    if not Character or not Character.PrimaryPart then return end
+    
+    local startCFrame = Character:GetPivot()
+    local startTime = tick()
+    
+    while tick() - startTime < duration do
+        local alpha = (tick() - startTime) / duration
+        local currentCFrame = startCFrame:Lerp(targetCFrame, alpha)
+        safeTP(currentCFrame)
+        task.wait(_G.AutoRobSettings.TeleportSpeed)
+    end
+    
+    safeTP(targetCFrame)
+end
+
+local function getRobbedAmount()
+    local success, amount = pcall(function()
+        local head = Character:FindFirstChild("Head")
+        if not head then return 0 end
+        
+        local billboard = head:FindFirstChild("CharacterBillboard")
+        if not billboard then return 0 end
+        
+        local children = billboard:GetChildren()
+        if #children < 4 then return 0 end
+        
+        local textLabel = children[4]
+        if not textLabel or not textLabel.ContentText then return 0 end
+        
+        local text = textLabel.ContentText
+        local cleanText = text:gsub("[$,]", "")
+        return tonumber(cleanText) or 0
+    end)
+    
+    return success and amount or 0
+end
+
+local function checkDropOffEnabled()
+    local success, enabled = pcall(function()
+        local dropOffPoint = Workspace.Game.Jobs.CriminalDropOffSpawners
+            .CriminalDropOffSpawnerPermanent.CriminalDropOffPoint.Zone
+            .BillboardAttachment.Billboard
+        
+        return dropOffPoint.Enabled
+    end)
+    
+    return success and enabled or false
+end
+
+local function updateStats()
+    local sessionTime = tick() - Stats.SessionStart
+    
+    -- Calculate rates
+    if sessionTime > 0 then
+        Stats.RobberiesPerMinute = (Stats.ATMsRobbed / sessionTime) * 60
+        Stats.ProfitPerHour = (Stats.SessionProfit / sessionTime) * 3600
+    end
+    
+    if Stats.ATMsRobbed > 0 then
+        Stats.AverageRobberyAmount = Stats.TotalRobbed / Stats.ATMsRobbed
+    end
+end
+
+local function log(message, level)
+    if not _G.AutoRobSettings.DetailedLogs and level == "debug" then return end
+    
+    local prefix = {
+        info = "[INFO]",
+        success = "[✓]",
+        warning = "[⚠]",
+        error = "[✗]",
+        debug = "[DEBUG]"
+    }
+    
+    print(string.format("%s %s", prefix[level] or "[INFO]", message))
+end
+
+-- ╔══════════════════════════════════════════════════════════════╗
+-- ║                    CASHOUT SYSTEM                            ║
+-- ╚══════════════════════════════════════════════════════════════╝
+
+local function performCashout()
+    log("Starting Cashout Sequence", "info")
+    
+    isCashingOut = true
+    currentActivity = "Cashing Out"
+    
+    local cashoutStartTime = tick()
+    
+    -- Teleport to cashout point with smooth transition
+    log("Teleporting to cashout location...", "debug")
+    
+    if _G.AutoRobSettings.SafeMode then
+        smoothTP(Locations.CashoutPoint, 1.5)
+    else
+        local teleportStart = tick()
+        repeat
+            task.wait(_G.AutoRobSettings.TeleportSpeed)
+            safeTP(Locations.CashoutPoint)
+        until tick() - teleportStart > 2
+    end
+    
+    -- Hold position at cashout point for processing
+    log("Holding position for cashout processing...", "debug")
+    local holdStart = tick()
+    local holdDuration = 3
+    
+    repeat
+        task.wait(0.2)
+        safeTP(Locations.CashoutPoint)
+    until tick() - holdStart > holdDuration
+    
+    -- Additional wait for cashout to fully process
+    log("Processing cashout...", "debug")
+    task.wait(_G.AutoRobSettings.WaitAfterCashout)
+    
+    -- Verify cashout completed
+    local cashoutTime = tick() - cashoutStartTime
+    Stats.SuccessfulCashouts = Stats.SuccessfulCashouts + 1
+    Stats.LastCashout = tick()
+    
+    log(string.format("Cashout completed in %.1fs", cashoutTime), "success")
+    
+    isCashingOut = false
+    currentActivity = "Idle"
+    
+    return true
+end
+
+-- ╔══════════════════════════════════════════════════════════════╗
+-- ║                    DELIVERY SYSTEM                           ║
+-- ╚══════════════════════════════════════════════════════════════╝
+
+local function forceDeliverRobbedAmount()
+    log("=== Starting Delivery Sequence ===", "info")
+    
+    isDeliveryInProgress = true
+    currentActivity = "Delivering"
+    
+    local deliveryStartTime = tick()
+    
+    local dropOffSpawners = Workspace.Game.Jobs.CriminalDropOffSpawners
+    if not dropOffSpawners or not dropOffSpawners.CriminalDropOffSpawnerPermanent then
+        log("Drop-off location not found!", "error")
+        isDeliveryInProgress = false
+        currentActivity = "Idle"
+        Stats.FailedDeliveries = Stats.FailedDeliveries + 1
+        return false, 0
+    end
+    
+    local initialRobbedAmount = getRobbedAmount()
+    log(string.format("Current robbed amount: $%s", formatNumber(initialRobbedAmount)), "info")
+    
+    if initialRobbedAmount <= 0 then
+        log("No money to deliver", "warning")
+        isDeliveryInProgress = false
+        currentActivity = "Idle"
+        return false, 0
+    end
+    
+    -- Clean money bags from backpack
+    log("Cleaning money bags from backpack...", "debug")
+    local bagsRemoved = 0
+    for _, bag in pairs(CollectionService:GetTagged("CriminalMoneyBagTool")) do
+        pcall(function() 
+            bag:Destroy() 
+            bagsRemoved = bagsRemoved + 1
+        end)
+        task.wait(0.05)
+    end
+    
+    if bagsRemoved > 0 then
+        log(string.format("Removed %d money bags", bagsRemoved), "debug")
+    end
+    
+    local maxAttempts = _G.AutoRobSettings.MaxDeliveryRetries
+    local deliverySuccess = false
+    local totalDelivered = 0
+    local deliveryAttempts = 0
+    
+    for attempt = 1, maxAttempts do
+        if not isAutoRobActive then break end
+        
+        deliveryAttempts = attempt
+        log(string.format("Delivery attempt %d/%d", attempt, maxAttempts), "info")
+        
+        local currentAmount = getRobbedAmount()
+        if currentAmount == 0 then
+            deliverySuccess = true
+            log("All money delivered!", "success")
+            break
+        end
+        
+        -- Teleport to drop-off point
+        log("Teleporting to drop-off point...", "debug")
+        local dropOffCFrame = dropOffSpawners.CriminalDropOffSpawnerPermanent.CFrame + Vector3.new(0, 5, 0)
+        
+        if _G.AutoRobSettings.SafeMode then
+            smoothTP(dropOffCFrame, 1)
+        else
+            local teleportStart = tick()
+            repeat
+                task.wait(_G.AutoRobSettings.TeleportSpeed)
+                safeTP(dropOffCFrame)
+            until tick() - teleportStart > 1.5
+        end
+        
+        -- Wait and monitor delivery processing
+        log("Monitoring delivery processing...", "debug")
+        local checkStart = tick()
+        local lastCheckAmount = currentAmount
+        local checkTimeout = 6
+        local deliveredThisAttempt = 0
+        
+        repeat
+            task.wait(0.3)
+            safeTP(dropOffCFrame)
+            
+            currentAmount = getRobbedAmount()
+            
+            if currentAmount < lastCheckAmount then
+                local delivered = lastCheckAmount - currentAmount
+                deliveredThisAttempt = deliveredThisAttempt + delivered
+                totalDelivered = totalDelivered + delivered
+                log(string.format("Delivered: $%s", formatNumber(delivered)), "success")
+                lastCheckAmount = currentAmount
+            end
+            
+            if currentAmount == 0 then
+                deliverySuccess = true
+                log("Delivery complete!", "success")
+                break
+            end
+        until tick() - checkStart > checkTimeout
+        
+        if deliverySuccess then
+            break
+        end
+        
+        if attempt < maxAttempts then
+            log(string.format("Delivery incomplete (Remaining: $%s), retrying...", formatNumber(currentAmount)), "warning")
+            task.wait(1)
+        end
+    end
+    
+    local deliveryTime = tick() - deliveryStartTime
+    
+    if deliverySuccess then
+        Stats.TotalDelivered = Stats.TotalDelivered + totalDelivered
+        Stats.SessionProfit = Stats.SessionProfit + totalDelivered
+        Stats.SuccessfulDeliveries = Stats.SuccessfulDeliveries + 1
+        Stats.LastDelivery = tick()
+        
+        log(string.format("Delivery completed in %.1fs | Delivered: $%s | Attempts: %d", 
+            deliveryTime, formatNumber(totalDelivered), deliveryAttempts), "success")
+        
+        -- Milestone notification
+        if _G.AutoRobSettings.NotifyMilestones and Stats.SessionProfit % 100000 < totalDelivered then
+            log(string.format("🎯 MILESTONE: Session profit reached $%s!", formatNumber(Stats.SessionProfit)), "info")
+        end
+        
+        -- AUTO CASHOUT AFTER SUCCESSFUL DELIVERY
+        if _G.AutoRobSettings.AutoCashout then
+            log("Starting auto cashout sequence...", "info")
+            task.wait(_G.AutoRobSettings.WaitAfterDelivery)
+            
+            local cashoutSuccess = performCashout()
+            
+            if cashoutSuccess then
+                Stats.TotalCashedOut = Stats.TotalCashedOut + totalDelivered
+                log(string.format("Money cashed out successfully! Total cashed: $%s", formatNumber(Stats.TotalCashedOut)), "success")
+            else
+                Stats.FailedCashouts = Stats.FailedCashouts + 1
+                log("Cashout failed!", "error")
+            end
+        end
+    else
+        Stats.FailedDeliveries = Stats.FailedDeliveries + 1
+        log(string.format("Delivery failed after %d attempts | Delivered: $%s / $%s", 
+            deliveryAttempts, formatNumber(totalDelivered), formatNumber(initialRobbedAmount)), "error")
+    end
+    
+    isDeliveryInProgress = false
+    currentActivity = "Idle"
+    
+    log("=== Delivery Sequence Complete ===", "info")
+    
+    return deliverySuccess, totalDelivered
+end
+
+-- ╔══════════════════════════════════════════════════════════════╗
+-- ║                    ATM ROBBERY SYSTEM                        ║
+-- ╚══════════════════════════════════════════════════════════════╝
+
+local function getATMDistance(atm)
+    if not Character or not Character:FindFirstChild("HumanoidRootPart") then
+        return math.huge
+    end
+    
+    local success, distance = pcall(function()
+        return (Character.HumanoidRootPart.Position - atm.WorldPivot.Position).Magnitude
+    end)
+    
+    return success and distance or math.huge
+end
+
+local function robSingleATM(atm, atmType)
+    if not isAutoRobActive then return false end
+    
+    currentActivity = "Robbing ATM"
+    
+    local atmTypeName = atmType == "tagged" and "Tagged ATM" or "Nil ATM"
+    local distance = getATMDistance(atm)
+    
+    log(string.format("Starting robbery: %s (%.0f studs away)", atmTypeName, distance), "info")
+    
+    -- Safety checks
+    if _G.AutoRobSettings.SafeMode then
+        if not Character or not Character:FindFirstChild("HumanoidRootPart") then
+            log("Character not ready, skipping ATM", "warning")
+            currentActivity = "Idle"
+            return false
+        end
+        
+        if not atm or not atm.Parent then
+            log("ATM no longer exists, skipping", "warning")
+            currentActivity = "Idle"
+            return false
+        end
+    end
+    
+    local robberyStartTime = tick()
+    local beforeAmount = getRobbedAmount()
+    
+    log(string.format("Current balance before robbery: $%s", formatNumber(beforeAmount)), "debug")
+    
+    -- Teleport to ATM
+    local teleportTime = atmType == "tagged" and 1 or 0.2
+    local atmCFrame = atm.WorldPivot + Vector3.new(0, 5, 0)
+    
+    if _G.AutoRobSettings.SafeMode and distance > 100 then
+        log("Using smooth teleport for long distance", "debug")
+        smoothTP(atmCFrame, 0.8)
+    else
+        local teleportStart = tick()
+        repeat
+            task.wait(_G.AutoRobSettings.TeleportSpeed)
+            safeTP(atmCFrame)
+        until tick() - teleportStart > teleportTime or not isAutoRobActive
+    end
+    
+    if not isAutoRobActive then 
+        currentActivity = "Idle"
+        return false 
+    end
+    
+    -- Start ATM bust
+    local success = pcall(function()
+        ReplicatedStorage.Remotes.AttemptATMBustStart:InvokeServer(atm)
+    end)
+    
+    if not success then
+        log("Failed to start ATM bust", "error")
+        currentActivity = "Idle"
+        return false
+    end
+    
+    log("ATM bust started, waiting for progress...", "debug")
+    
+    -- Wait for progress bar
+    local progressStart = tick()
+    repeat
+        task.wait(_G.AutoRobSettings.TeleportSpeed)
+        safeTP(atmCFrame)
+    until tick() - progressStart > 2.5 or not isAutoRobActive
+    
+    if not isAutoRobActive then 
+        currentActivity = "Idle"
+        return false 
+    end
+    
+    -- Complete ATM bust
+    success = pcall(function()
+        ReplicatedStorage.Remotes.AttemptATMBustComplete:InvokeServer(atm)
+    end)
+    
+    if not success then
+        log("Failed to complete ATM bust", "error")
+        currentActivity = "Idle"
+        return false
+    end
+    
+    log("ATM bust completed, waiting for cooldown...", "debug")
+    
+    -- Wait for debounce cooldown
+    local cooldownStart = tick()
+    repeat
+        task.wait(_G.AutoRobSettings.TeleportSpeed)
+        safeTP(atmCFrame)
+    until tick() - cooldownStart > 3 or 
+          (Character and Character:GetAttribute("ATMBustDebounce")) or 
+          not isAutoRobActive
+    
+    -- Wait for debounce to clear
+    repeat
+        task.wait(_G.AutoRobSettings.TeleportSpeed)
+        safeTP(atmCFrame)
+    until tick() - cooldownStart > 3 or 
+          not (Character and Character:GetAttribute("ATMBustDebounce")) or
+          not isAutoRobActive
+    
+    task.wait(_G.AutoRobSettings.WaitAfterRobbery)
+    
+    -- Verify robbery success
+    local afterAmount = getRobbedAmount()
+    local gained = afterAmount - beforeAmount
+    local robberyTime = tick() - robberyStartTime
+    
+    if gained > 0 then
+        Stats.ATMsRobbed = Stats.ATMsRobbed + 1
+        Stats.TotalRobbed = Stats.TotalRobbed + gained
+        Stats.NoATMCount = 0
+        Stats.LastRobbery = tick()
+        lastATMPosition = atm.WorldPivot.Position
+        
+        log(string.format("Robbery successful! Gained: +$%s | Total: $%s | Time: %.1fs", 
+            formatNumber(gained), formatNumber(afterAmount), robberyTime), "success")
+        
+        -- Check if target reached
+        if _G.AutoRobSettings.AutoDeliver and afterAmount >= _G.AutoRobSettings.TargetAmount then
+            local dropOffEnabled = checkDropOffEnabled()
+            
+            if dropOffEnabled then
+                log(string.format("🎯 TARGET REACHED! $%s >= $%s", 
+                    formatNumber(afterAmount), 
+                    formatNumber(_G.AutoRobSettings.TargetAmount)), "success")
+                log("Starting full delivery & cashout cycle...", "info")
+                
+                Stats.TotalCycles = Stats.TotalCycles + 1
+                
+                local deliverySuccess, delivered = forceDeliverRobbedAmount()
+                
+                if deliverySuccess then
+                    log(string.format("✓ CYCLE COMPLETE! Cycle #%d | Profit: $%s", 
+                        Stats.TotalCycles, formatNumber(delivered)), "success")
+                else
+                    log("Delivery failed, continuing robbery...", "warning")
+                end
+                
+                currentActivity = "Idle"
+                return true
+            else
+                log("Drop-off point not enabled, continuing robbery...", "warning")
+            end
+        end
+        
+        currentActivity = "Idle"
+        return false
+    else
+        log(string.format("Robbery failed or no money gained (Time: %.1fs)", robberyTime), "warning")
+        currentActivity = "Idle"
+        return false
+    end
+end
+
+local function findAndRobATMs()
+    log("=== Searching for ATMs ===", "debug")
+    
+    local foundCount = 0
+    local deliveryTriggered = false
+    local atmList = {}
+    
+    -- Collect tagged ATMs
+    local taggedATMs = CollectionService:GetTagged("CriminalATM")
+    log(string.format("Found %d tagged ATMs", #taggedATMs), "debug")
+    
+    for _, atm in pairs(taggedATMs) do
+        if _G.AutoRobSettings.SkipBustedATMs and atm:GetAttribute("State") == "Busted" then
+            continue
+        end
+        
+        table.insert(atmList, {
+            atm = atm,
+            type = "tagged",
+            distance = getATMDistance(atm)
+        })
+    end
+    
+    -- Collect nil ATMs if enabled
+    if _G.AutoRobSettings.UseNilATMs then
+        local nilATMs = {}
+        for _, obj in pairs(getnilinstances()) do
+            if obj.Name == "CriminalATM" then
+                if not _G.AutoRobSettings.SkipBustedATMs or obj:GetAttribute("State") ~= "Busted" then
+                    table.insert(nilATMs, obj)
+                end
+            end
+        end
+        
+        log(string.format("Found %d nil ATMs", #nilATMs), "debug")
+        
+        for _, atm in pairs(nilATMs) do
+            table.insert(atmList, {
+                atm = atm,
+                type = "nil",
+                distance = getATMDistance(atm)
+            })
+        end
+    end
+    
+    -- Sort by distance if enabled
+    if _G.AutoRobSettings.PrioritizeClosestATM then
+        table.sort(atmList, function(a, b)
+            return a.distance < b.distance
+        end)
+        log("ATMs sorted by distance (closest first)", "debug")
+    end
+    
+    log(string.format("Total ATMs available: %d", #atmList), "info")
+    
+    -- Rob ATMs in order
+    for _, atmData in pairs(atmList) do
+        if not isAutoRobActive then break end
+        
+        foundCount = foundCount + 1
+        deliveryTriggered = robSingleATM(atmData.atm, atmData.type)
+        
+        if deliveryTriggered then
+            log("Delivery cycle triggered, breaking ATM loop", "debug")
+            break
+        end
+    end
+    
+    -- Handle no ATMs found
+    if foundCount == 0 then
+        Stats.NoATMCount = Stats.NoATMCount + 1
+        log(string.format("No ATMs found. Retry count: %d/%d", 
+            Stats.NoATMCount, _G.AutoRobSettings.MaxNoATMRetries), "warning")
+        
+        if Stats.NoATMCount >= _G.AutoRobSettings.MaxNoATMRetries then
+            log("Max retry count reached, initiating spawner search...", "info")
+            
+            -- Reset ATM loader
+            pcall(function()
+                getfenv().atmloadercooldown = false
+            end)
+            LocalPlayer.ReplicationFocus = nil
+            Stats.NoATMCount = 0
+            
+            -- Search spawners
+            local spawnersFolder = Workspace.Game.Jobs.CriminalATMSpawners
+            if spawnersFolder then
+                local spawners = spawnersFolder:GetChildren()
+                log(string.format("Teleporting to %d spawners to load ATMs...", #spawners), "info")
+                
+                for i, spawner in ipairs(spawners) do
+                    if not isAutoRobActive then break end
+                    
+                    safeTP(spawner:GetPivot() + Vector3.new(0, 5, 0))
+                    log(string.format("Spawner %d/%d", i, #spawners), "debug")
+                    
+                    task.wait(0.5)
+                    LocalPlayer.ReplicationFocus = nil
+                    
+                    -- Check if ATMs loaded
+                    local newATMs = #CollectionService:GetTagged("CriminalATM")
+                    if newATMs > 0 then
+                        log(string.format("ATMs loaded! Found %d ATMs after spawner visit", newATMs), "success")
+                        Stats.NoATMCount = 0
+                        break
+                    end
+                end
+            end
+        end
+    else
+        Stats.NoATMCount = 0
+    end
+    
+    updateStats()
+end
+
+-- ╔══════════════════════════════════════════════════════════════╗
+-- ║                    WINDUI INTERFACE                          ║
+-- ╚══════════════════════════════════════════════════════════════╝
+
+print("Loading WindUI...")
+
+local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
+
+-- Custom Theme
+WindUI:AddTheme({
+    Name = "Auto Rob Pro",
+    Accent = WindUI:Gradient({
+        ["0"] = { Color = Color3.fromRGB(15, 23, 42), Transparency = 0 },
+        ["100"] = { Color = Color3.fromRGB(30, 41, 59), Transparency = 0 },
+    }, { Rotation = 45 }),
+    Dialog = Color3.fromRGB(15, 23, 42),
+    Outline = Color3.fromRGB(34, 197, 94),
+    Text = Color3.fromRGB(248, 250, 252),
+    Placeholder = Color3.fromRGB(148, 163, 184),
+    Background = Color3.fromRGB(15, 23, 42),
+    Button = Color3.fromRGB(51, 65, 85),
+    Icon = Color3.fromRGB(34, 197, 94)
+})
+
+local Window = WindUI:CreateWindow({
+    Title = "Auto Rob ATM Pro",
+    Icon = "dollar-sign",
+    Author = "Advanced System V2.0",
+    Folder = "AutoRobProConfig",
+    
+    Size = UDim2.fromOffset(600, 400),
+    MinSize = Vector2.new(500, 350),
+    MaxSize = Vector2.new(800, 600),
+    Transparent = true,
+    Theme = "Auto Rob Pro",
+    Resizable = true,
+    SideBarWidth = 170,
+})
+
+Window:SetToggleKey(Enum.KeyCode.RightControl)
+
+WindUI:Notify({
+    Title = "Auto Rob ATM Pro",
+    Content = "Press Right Control to Toggle | Full automation with auto cashout!",
+    Duration = 5,
+    Icon = "dollar-sign",
+})
+
+-- ═══════════════════ TABS ═══════════════════
+
+local Main = Window:Tab({
+    Title = "Auto Rob",
+    Icon = "dollar-sign",
+    Locked = false,
+})
+
+local Settings = Window:Tab({
+    Title = "Settings",
+    Icon = "settings",
+    Locked = false,
+})
+
+local Advanced = Window:Tab({
+    Title = "Advanced",
+    Icon = "sliders",
+    Locked = false,
+})
+
+local Stats_Tab = Window:Tab({
+    Title = "Statistics",
+    Icon = "trending-up",
+    Locked = false,
+})
+
+local Info = Window:Tab({
+    Title = "Info",
+    Icon = "info",
+    Locked = false,
+})
+
+-- ═══════════════════ MAIN TAB ═══════════════════
+
+local Section1 = Main:Section({
+    Title = "🎯 Auto Rob Control",
+    Opened = true,
+})
+
+local StatusLabel = Main:Label({
+    Title = "Status: Idle",
+    Icon = "activity",
+})
+
+Main:Space()
+
+local AutoRobToggle = Main:Toggle({
+    Title = "Enable Auto Rob",
+    Type = "Toggle",
+    Default = false,
+    Callback = function(Value)
+        _G.AutoRobSettings.Enabled = Value
+        isAutoRobActive = Value
+        
+        if Value then
+            log("Auto Rob started by user", "info")
+            
+            WindUI:Notify({
+                Title = "Auto Rob Started",
+                Content = "Searching for ATMs and starting automation...",
+                Duration = 3,
+                Icon = "play",
+            })
+            
+            spawn(function()
+                while isAutoRobActive and _G.AutoRobSettings.Enabled do
+                    pcall(function()
+                        findAndRobATMs()
+                    end)
+                    task.wait(0.5)
+                end
+            end)
+        else
+            log("Auto Rob stopped by user", "info")
+            currentActivity = "Idle"
+            
+            WindUI:Notify({
+                Title = "Auto Rob Stopped",
+                Content = "Automation paused",
+                Duration = 3,
+                Icon = "pause",
+            })
+        end
+    end
+})
+
+Main:Space()
+Main:Divider()
+
+local Section2 = Main:Section({
+    Title = "💰 Manual Actions",
+    Opened = true,
+})
+
+local CurrentAmountButton = Main:Button({
+    Title = "Check Current Amount",
+    Locked = false,
+    Callback = function()
+        local amount = getRobbedAmount()
+        WindUI:Notify({
+            Title = "Current Amount",
+            Content = string.format("Robbed: $%s", formatNumber(amount)),
+            Duration = 4,
+            Icon = "dollar-sign",
+        })
+    end
+})
+
+local ForceDeliverButton = Main:Button({
+    Title = "Force Deliver Now",
+    Locked = false,
+    Callback = function()
+        local amount = getRobbedAmount()
+        if amount > 0 then
+            WindUI:Notify({
+                Title = "Delivering",
+                Content = string.format("Delivering $%s...", formatNumber(amount)),
+                Duration = 3,
+                Icon = "truck",
+            })
+            
+            spawn(function()
+                local success, delivered = forceDeliverRobbedAmount()
+                
+                if success then
+                    WindUI:Notify({
+                        Title = "Delivery Success",
+                        Content = string.format("Delivered & Cashed: $%s", formatNumber(delivered)),
+                        Duration = 5,
+                        Icon = "check-circle",
+                    })
+                else
+                    WindUI:Notify({
+                        Title = "Delivery Failed",
+                        Content = "Unable to complete delivery",
+                        Duration = 5,
+                        Icon = "x-circle",
+                    })
+                end
+            end)
+        else
+            WindUI:Notify({
+                Title = "No Money",
+                Content = "You have no money to deliver!",
+                Duration = 3,
+                Icon = "alert-circle",
+            })
+        end
+    end
+})
+
+local ForceCashoutButton = Main:Button({
+    Title = "Force Cashout Now",
+    Locked = false,
+    Callback = function()
+        WindUI:Notify({
+            Title = "Cashing Out",
+            Content = "Teleporting to cashout point...",
+            Duration = 3,
+            Icon = "trending-up",
+        })
+        
+        spawn(function()
+            local success = performCashout()
+            
+            if success then
+                WindUI:Notify({
+                    Title = "Cashout Complete",
+                    Content = "Money cashed out successfully!",
+                    Duration = 4,
+                    Icon = "check-circle",
+                })
+            else
+                WindUI:Notify({
+                    Title = "Cashout Failed",
+                    Content = "Unable to complete cashout",
+                    Duration = 4,
+                    Icon = "x-circle",
+                })
+            end
+        end)
+    end
+})
+
+-- ═══════════════════ SETTINGS TAB ═══════════════════
+
+local Section3 = Settings:Section({
+    Title = "⚙️ Main Configuration",
+    Opened = true,
+})
+
+local TargetAmountInput = Settings:Input({
+    Title = "Target Amount ($)",
+    Placeholder = "Default: 50000",
+    Callback = function(value)
+        local num = tonumber(value)
+        if num and num >= 1000 then
+            _G.AutoRobSettings.TargetAmount = num
+            WindUI:Notify({
+                Title = "Target Updated",
+                Content = string.format("New target: $%s", formatNumber(num)),
+                Duration = 3,
+            })
+            log(string.format("Target amount set to $%s", formatNumber(num)), "info")
+        end
+    end
+})
+
+Settings:Space()
+
+local AutoDeliverToggle = Settings:Toggle({
+    Title = "Auto Deliver",
+    Type = "Toggle",
+    Default = true,
+    Callback = function(Value)
+        _G.AutoRobSettings.AutoDeliver = Value
+        log(string.format("Auto deliver: %s", Value and "enabled" or "disabled"), "info")
+    end
+})
+
+local AutoCashoutToggle = Settings:Toggle({
+    Title = "Auto Cashout After Delivery",
+    Type = "Toggle",
+    Default = true,
+    Callback = function(Value)
+        _G.AutoRobSettings.AutoCashout = Value
+        log(string.format("Auto cashout: %s", Value and "enabled" or "disabled"), "info")
+    end
+})
+
+Settings:Space()
+Settings:Divider()
+
+local Section4 = Settings:Section({
+    Title = "🎯 ATM Settings",
+    Opened = true,
+})
+
+local UseNilATMsToggle = Settings:Toggle({
+    Title = "Use Nil ATMs",
+    Type = "Toggle",
+    Default = true,
+    Callback = function(Value)
+        _G.AutoRobSettings.UseNilATMs = Value
+    end
+})
+
+local PrioritizeClosestToggle = Settings:Toggle({
+    Title = "Prioritize Closest ATM",
+    Type = "Toggle",
+    Default = true,
+    Callback = function(Value)
+        _G.AutoRobSettings.PrioritizeClosestATM = Value
+    end
+})
+
+local SkipBustedToggle = Settings:Toggle({
+    Title = "Skip Busted ATMs",
+    Type = "Toggle",
+    Default = true,
+    Callback = function(Value)
+        _G.AutoRobSettings.SkipBustedATMs = Value
+    end
+})
+
+-- ═══════════════════ ADVANCED TAB ═══════════════════
+
+local Section5 = Advanced:Section({
+    Title = "🛡️ Safety & Performance",
+    Opened = true,
+})
+
+local SafeModeToggle = Advanced:Toggle({
+    Title = "Safe Mode",
+    Type = "Toggle",
+    Default = true,
+    Callback = function(Value)
+        _G.AutoRobSettings.SafeMode = Value
+    end
+})
+
+local AntiKickToggle = Advanced:Toggle({
+    Title = "Anti-Kick (Anti-AFK)",
+    Type = "Toggle",
+    Default = true,
+    Callback = function(Value)
+        _G.AutoRobSettings.AntiKick = Value
+    end
+})
+
+Advanced:Space()
+
+local TeleportSpeedInput = Advanced:Input({
+    Title = "Teleport Speed (seconds)",
+    Placeholder = "Default: 0.3",
+    Callback = function(value)
+        local num = tonumber(value)
+        if num and num >= 0.1 and num <= 2 then
+            _G.AutoRobSettings.TeleportSpeed = num
+        end
+    end
+})
+
+local WaitAfterRobberyInput = Advanced:Input({
+    Title = "Wait After Robbery (seconds)",
+    Placeholder = "Default: 0.5",
+    Callback = function(value)
+        local num = tonumber(value)
+        if num and num >= 0 and num <= 5 then
+            _G.AutoRobSettings.WaitAfterRobbery = num
+        end
+    end
+})
+
+Advanced:Space()
+Advanced:Divider()
+
+local Section6 = Advanced:Section({
+    Title = "📊 Advanced Features",
+    Opened = true,
+})
+
+local DetailedLogsToggle = Advanced:Toggle({
+    Title = "Detailed Console Logs",
+    Type = "Toggle",
+    Default = true,
+    Callback = function(Value)
+        _G.AutoRobSettings.DetailedLogs = Value
+    end
+})
+
+local NotifyMilestonesToggle = Advanced:Toggle({
+    Title = "Notify Profit Milestones",
+    Type = "Toggle",
+    Default = true,
+    Callback = function(Value)
+        _G.AutoRobSettings.NotifyMilestones = Value
+    end
+})
+
+local SmartATMSearchToggle = Advanced:Toggle({
+    Title = "Smart ATM Search",
+    Type = "Toggle",
+    Default = true,
+    Callback = function(Value)
+        _G.AutoRobSettings.SmartATMSearch = Value
+    end
+})
+
+-- ═══════════════════ STATS TAB ═══════════════════
+
+local Section7 = Stats_Tab:Section({
+    Title = "📈 Session Statistics",
+    Opened = true,
+})
+
+local MoneyStatsLabel = Stats_Tab:Label({
+    Title = "Loading...",
+    Icon = "dollar-sign",
+})
+
+Stats_Tab:Space()
+
+local ActivityStatsLabel = Stats_Tab:Label({
+    Title = "Loading...",
+    Icon = "activity",
+})
+
+Stats_Tab:Space()
+
+local PerformanceStatsLabel = Stats_Tab:Label({
+    Title = "Loading...",
+    Icon = "zap",
+})
+
+Stats_Tab:Space()
+Stats_Tab:Divider()
+
+local ResetStatsButton = Stats_Tab:Button({
+    Title = "Reset All Statistics",
+    Locked = false,
+    Callback = function()
+        Stats.TotalRobbed = 0
+        Stats.TotalDelivered = 0
+        Stats.TotalCashedOut = 0
+        Stats.SessionProfit = 0
+        Stats.ATMsRobbed = 0
+        Stats.SuccessfulDeliveries = 0
+        Stats.FailedDeliveries = 0
+        Stats.SuccessfulCashouts = 0
+        Stats.FailedCashouts = 0
+        Stats.SessionStart = tick()
+        Stats.TotalCycles = 0
+        
+        WindUI:Notify({
+            Title = "Stats Reset",
+            Content = "All statistics have been reset",
+            Duration = 3,
+            Icon = "refresh-cw",
+        })
+        
+        log("Statistics reset by user", "info")
+    end
+})
+
+-- Update stats display
+spawn(function()
+    while true do
+        wait(1)
+        
+        updateStats()
+        
+        local currentAmount = getRobbedAmount()
+        local sessionTime = tick() - Stats.SessionStart
+        
+        -- Update status label
+        pcall(function()
+            local statusText = string.format("Status: %s | Current: $%s", 
+                currentActivity, 
+                formatNumber(currentAmount))
+            StatusLabel:Set(statusText)
+        end)
+        
+        -- Update money stats
+        pcall(function()
+            local moneyText = string.format(
+                "💰 Money Stats:\n" ..
+                "Total Robbed: $%s\n" ..
+                "Total Delivered: $%s\n" ..
+                "Total Cashed Out: $%s\n" ..
+                "Session Profit: $%s\n" ..
+                "Current Balance: $%s",
+                formatNumber(Stats.TotalRobbed),
+                formatNumber(Stats.TotalDelivered),
+                formatNumber(Stats.TotalCashedOut),
+                formatNumber(Stats.SessionProfit),
+                formatNumber(currentAmount)
+            )
+            MoneyStatsLabel:Set(moneyText)
+        end)
+        
+        -- Update activity stats
+        pcall(function()
+            local activityText = string.format(
+                "🎯 Activity Stats:\n" ..
+                "ATMs Robbed: %d\n" ..
+                "Deliveries: %d ✓ / %d ✗\n" ..
+                "Cashouts: %d ✓ / %d ✗\n" ..
+                "Total Cycles: %d\n" ..
+                "Avg Per Robbery: $%s",
+                Stats.ATMsRobbed,
+                Stats.SuccessfulDeliveries,
+                Stats.FailedDeliveries,
+                Stats.SuccessfulCashouts,
+                Stats.FailedCashouts,
+                Stats.TotalCycles,
+                formatNumber(Stats.AverageRobberyAmount)
+            )
+            ActivityStatsLabel:Set(activityText)
+        end)
+        
+        -- Update performance stats
+        pcall(function()
+            local performanceText = string.format(
+                "⚡ Performance Stats:\n" ..
+                "Session Time: %s\n" ..
+                "Robberies/Min: %.1f\n" ..
+                "Profit/Hour: $%s\n" ..
+                "Last Robbery: %s ago\n" ..
+                "Last Cashout: %s ago",
+                formatTime(sessionTime),
+                Stats.RobberiesPerMinute,
+                formatNumber(Stats.ProfitPerHour),
+                Stats.LastRobbery > 0 and formatTime(tick() - Stats.LastRobbery) or "Never",
+                Stats.LastCashout > 0 and formatTime(tick() - Stats.LastCashout) or "Never"
+            )
+            PerformanceStatsLabel:Set(performanceText)
+        end)
+    end
+end)
+
+-- ═══════════════════ INFO TAB ═══════════════════
+
+local Section8 = Info:Section({
+    Title = "ℹ️ Information",
+    Opened = true,
+})
+
+Info:Label({
+    Title = "Auto Rob ATM Pro V2.0\n\n" ..
+           "Features:\n" ..
+           "• Full automation with auto cashout\n" ..
+           "• Smart ATM detection & prioritization\n" ..
+           "• Advanced delivery system with retries\n" ..
+           "• Auto cashout after delivery\n" ..
+           "• Comprehensive statistics tracking\n" ..
+           "• Safe mode & anti-kick protection\n" ..
+           "• Milestone notifications\n\n" ..
+           "How it works:\n" ..
+           "1. Finds and robs ATMs automatically\n" ..
+           "2. When target amount reached, delivers money\n" ..
+           "3. Automatically teleports to cashout point\n" ..
+           "4. Cashes out and returns to robbing\n\n" ..
+           "Press Right Control to toggle UI",
+    Icon = "info",
+})
+
+-- ╔══════════════════════════════════════════════════════════════╗
+-- ║                    ANTI-KICK SYSTEM                          ║
+-- ╚══════════════════════════════════════════════════════════════╝
+
+spawn(function()
+    local VirtualInputManager = game:GetService("VirtualInputManager")
+    
+    while true do
+        if _G.AutoRobSettings.AntiKick then
+            local waitTime = math.random(60, 120)
+            task.wait(waitTime)
+            
+            local keyCombos = {
+                {Enum.KeyCode.W, Enum.KeyCode.LeftShift},
+                {Enum.KeyCode.Space, Enum.KeyCode.LeftControl},
+                {Enum.KeyCode.A, Enum.KeyCode.D},
+            }
+            
+            local combo = keyCombos[math.random(1, #keyCombos)]
+            
+            pcall(function()
+                for _, key in pairs(combo) do
+                    VirtualInputManager:SendKeyEvent(true, key, false, nil)
+                end
+                
+                task.wait(0.1)
+                
+                for _, key in pairs(combo) do
+                    VirtualInputManager:SendKeyEvent(false, key, false, nil)
+                end
+            end)
+        else
+            task.wait(10)
+        end
+    end
+end)
+
+-- ╔══════════════════════════════════════════════════════════════╗
+-- ║                    STARTUP                                   ║
+-- ╚══════════════════════════════════════════════════════════════╝
+
+LocalPlayer.CharacterAdded:Connect(function(char)
+    Character = char
+    
+    if _G.AutoRobSettings.AutoRespawn and isAutoRobActive then
+        task.wait(2)
+        log("Character respawned, resuming automation...", "info")
+    end
+end)
+
+Main:Select()
+
+print("╔════════════════════════════════════════════════════════════╗")
+print("║     AUTO ROB ATM PRO V2.0 - LOADED SUCCESSFULLY            ║")
+print("╠════════════════════════════════════════════════════════════╣")
+print("║ ✓ Full automation with auto cashout                       ║")
+print("║ ✓ Smart ATM detection & prioritization                    ║")
+print("║ ✓ Advanced delivery & retry system                        ║")
+print("║ ✓ Comprehensive statistics tracking                       ║")
+print("║ ✓ Anti-kick protection enabled                            ║")
+print("║                                                            ║")
+print("║ Press Right Control to toggle menu                        ║")
+print("╚════════════════════════════════════════════════════════════╝")
+
+log("Auto Rob ATM Pro V2.0 initialized successfully!", "success")
+log(string.format("Cashout location set to: %.2f, %.2f, %.2f", 
+    Locations.CashoutPoint.Position.X, 
+    Locations.CashoutPoint.Position.Y, 
+    Locations.CashoutPoint.Position.Z), "info")
