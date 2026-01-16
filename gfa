@@ -1,0 +1,9 @@
+script_key="VHGZVTQhcQrKWQmIPxytOoJDZQtnwfwW";
+getgenv().GDO_XMAS_WORLD = true
+getgenv().GXMAS_WORLD_FOCUS_EGGS_FOR_AUTO_CRAFT_PETS = false
+getgenv().GDO_LOCKPICKING = true
+getgenv().GUSE_DIAMOND_LOCKPICK = true
+getgenv().GDO_ADVENT_CALENDAR = false
+_G.GWEBHOOK_USERID = "1060775861118316704" -- your discord userID, rightclick your user & copy it, might need to enable DEV settings in discord.
+_G.GWEBHOOK_LINK = "https://discord.com/api/webhooks/1414550206531244133/CRQ7-hTnGaBnu-v-yAGxOQYg07hdOZ2d93xfv6-PBTsSU5g3iqoV7_mkZSzoYKdBn1F1" -- a webhook on your private discord channel.
+loadstring(game:HttpGet("https://api.luarmor.net/files/v3/loaders/34915da4ad87a5028e1fd64efbe3543f.lua"))()
