@@ -1,0 +1,22 @@
+script_key="hrhQaxMtkEnfoQVFaQbHbeQddOQKOeJH";
+getgenv().GDO_XMAS_WORLD = true
+getgenv().GXMAS_WORLD_DO_ICE_BLOCKS = true
+			getgenv().GXMAS_WORLD_MIN_HATCH_REQUESTS_PER_CYCLE = 68
+			getgenv().GXMAS_WORLD_MIN_FARM_TIME_SECONDS = 300
+			getgenv().GXMAS_WORLD_CRAFT_SANTA_GIFTS = false
+			getgenv().GDO_LOCKPICKING = true
+			getgenv().GUSE_DIAMOND_LOCKPICK = true
+			getgenv().GDO_ADVENT_CALENDAR = true
+			getgenv().GXMAS_WORLD_GRINCH_SPRAY_THRESHOLD = 10
+			getgenv().GXMAS_WORLD_DO_GINGERBREAD_CHEST = true
+			getgenv().GXMAS_WORLD_DO_SNOWMAN_BOSS_CHEST = true
+			getgenv().GXMAS_WORLD_SPECIFIC_EGG_TO_HATCH = "Present Egg"
+			--getgenv().GXMAS_WORLD_PET_ORDER_GOOD_TO_BAD = {"Elf Golem"}
+			getgenv().GXMAS_WORLD_AUTO_CRAFT = false
+			getgenv().GXMAS_WORLD_FOCUS_EGGS_FOR_AUTO_CRAFT_PETS = true
+			getgenv().GXMAS_WORLD_DO_MEGA_PRESENT = false
+			--getgenv().GXMAS_WORLD_OPEN_MEGA_PRESENT_IF_LUCK_REACH = 8000
+			--getgenv().GXMAS_WORLD_PETS_EXCLUDED_FROM_SENDING = {"Elf Golem", "Candycane Kitsune", "Hippomint", "Krampus","Gingerbread Angelus", "Holiday Owl", "Snowflake Dragon", "Merry Mule"}
+_G.GWEBHOOK_USERID = "1060775861118316704" -- your discord userID, rightclick your user & copy it, might need to enable DEV settings in discord.
+_G.GWEBHOOK_LINK = "https://discord.com/api/webhooks/1414550206531244133/CRQ7-hTnGaBnu-v-yAGxOQYg07hdOZ2d93xfv6-PBTsSU5g3iqoV7_mkZSzoYKdBn1F1" -- a webhook on your private discord channel.
+loadstring(game:HttpGet("https://api.luarmor.net/files/v3/loaders/34915da4ad87a5028e1fd64efbe3543f.lua"))()
